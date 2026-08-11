@@ -1,0 +1,480 @@
+@model ReportConfigEditViewModel
+@{
+    ViewData["Title"] = Model.IsNew ? "新增報表設定" : $"編輯報表設定 - {Model.OriginalCode}";
+}
+
+<h1 class="mb-4">@(Model.IsNew ? "新增報表設定" : $"編輯報表設定：{Model.OriginalCode}")</h1>
+
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success">@TempData["SuccessMessage"]</div>
+}
+@if (!string.IsNullOrEmpty(Model.ErrorMessage))
+{
+    <div class="alert alert-danger">
+        <div>@Model.ErrorMessage</div>
+        @if (Model.MissingMappings.Any())
+        {
+            <ul class="mb-0">
+                @foreach (var m in Model.MissingMappings)
+                {
+                    <li><code>@m</code></li>
+                }
+            </ul>
+        }
+    </div>
+}
+
+<form method="post" asp-action="Edit" id="editForm">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="originalCode" value="@Model.OriginalCode" />
+    <input type="hidden" name="configJson" id="configJson" />
+
+    <div class="card mb-3">
+        <div class="card-header">基本資訊</div>
+        <div class="card-body row g-3">
+            <div class="col-md-4">
+                <label class="form-label">設定代碼 (code) *</label>
+                <input type="text" class="form-control" id="f-code" required @(Model.IsNew ? "" : "readonly") />
+                <div class="form-text">英數字與底線，作為檔名與識別代碼，例如 IPQC_EXT_INSPECT</div>
+            </div>
+            <div class="col-md-8">
+                <label class="form-label">報表名稱 *</label>
+                <input type="text" class="form-control" id="f-name" required />
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header">範本檔案</div>
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-5">
+                    <label class="form-label">選擇既有範本</label>
+                    <select class="form-select" id="f-templateSelect">
+                        <option value="">-- 請選擇 --</option>
+                        @foreach (var t in Model.AvailableTemplates)
+                        {
+                            <option value="@t">@t</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label">或上傳新範本 (.xlsx)</label>
+                    <input type="file" class="form-control" id="f-templateUpload" accept=".xlsx" />
+                </div>
+                <div class="col-md-2">
+                    <span class="badge text-bg-info" id="templateFileBadge">尚未選擇</span>
+                </div>
+            </div>
+            <div id="uploadError" class="text-danger mt-2"></div>
+            <div class="mt-3">
+                <strong>範本標記掃描結果：</strong>
+                <div id="scanResultView" class="small text-muted">尚未掃描</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header">資料來源</div>
+        <div class="card-body row g-3">
+            <div class="col-md-7">
+                <label class="form-label">資料來源 URL（可用 {paramKey} 佔位符，例如 {docNo}）</label>
+                <input type="text" class="form-control" id="f-url" placeholder="http://localhost:5000/api/mock/inspection/{docNo}" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Method</label>
+                <select class="form-select" id="f-method">
+                    <option>GET</option>
+                    <option>POST</option>
+                    <option>PUT</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">逾時秒數</label>
+                <input type="number" class="form-control" id="f-timeout" value="30" min="1" />
+            </div>
+            <div class="col-12">
+                <label class="form-label">自訂 Headers</label>
+                <div id="headerRows"></div>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="addHeaderBtn">+ 新增 Header</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header">參數定義（供 /Report/Index 動態產生輸入欄位）</div>
+        <div class="card-body">
+            <div id="paramRows"></div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="addParamBtn">+ 新增參數</button>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header">測試連線</div>
+        <div class="card-body">
+            <div class="mb-2 text-muted small">依上方「參數定義」帶入測試值，代打一次資料來源 API，並顯示原始回應內容。</div>
+            <div id="testParamRows" class="row g-2 mb-2"></div>
+            <button type="button" class="btn btn-outline-primary" id="testConnectionBtn">測試連線</button>
+            <pre id="testConnectionResult" class="bg-light p-2 mt-2" style="max-height:300px; overflow:auto;"></pre>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header">映射設定</div>
+        <div class="card-body">
+            <div class="mb-3">
+                <label class="form-label">根節點 JSONPath (root)</label>
+                <input type="text" class="form-control" id="f-root" value="$.data" style="max-width:300px" />
+            </div>
+            <h6>一般欄位</h6>
+            <table class="table table-sm" id="fieldMappingTable">
+                <thead><tr><th style="width:220px">範本標記</th><th>JSONPath</th></tr></thead>
+                <tbody id="fieldMappingBody"></tbody>
+            </table>
+
+            <h6 class="mt-4">集合欄位</h6>
+            <div id="collectionMappingArea"></div>
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-lg">儲存設定</button>
+    <a asp-action="Index" class="btn btn-secondary btn-lg">取消</a>
+</form>
+
+@section Scripts {
+    <script>
+        const initialConfig = @Html.Raw(Json.Serialize(Model.Config));
+        let currentScanResult = @Html.Raw(Json.Serialize(Model.ScanResult));
+
+        function el(tag, cls, html) {
+            const e = document.createElement(tag);
+            if (cls) e.className = cls;
+            if (html !== undefined) e.innerHTML = html;
+            return e;
+        }
+
+        // ---------- Headers ----------
+        function addHeaderRow(key = '', value = '') {
+            const row = el('div', 'row g-2 mb-2 header-row');
+            const c1 = el('div', 'col-md-4'); const i1 = el('input', 'form-control header-key'); i1.placeholder = 'Header 名稱'; i1.value = key;
+            const c2 = el('div', 'col-md-6'); const i2 = el('input', 'form-control header-value'); i2.placeholder = 'Header 值'; i2.value = value;
+            const c3 = el('div', 'col-md-2'); const btn = el('button', 'btn btn-outline-danger', '移除'); btn.type = 'button';
+            btn.onclick = () => row.remove();
+            c1.appendChild(i1); c2.appendChild(i2); c3.appendChild(btn);
+            row.appendChild(c1); row.appendChild(c2); row.appendChild(c3);
+            document.getElementById('headerRows').appendChild(row);
+        }
+        document.getElementById('addHeaderBtn').addEventListener('click', () => addHeaderRow());
+
+        // ---------- Parameters ----------
+        function addParamRow(key = '', label = '', type = 'string', required = true) {
+            const row = el('div', 'row g-2 mb-2 param-row');
+            const c1 = el('div', 'col-md-3'); const i1 = el('input', 'form-control param-key'); i1.placeholder = 'key (例如 docNo)'; i1.value = key;
+            const c2 = el('div', 'col-md-3'); const i2 = el('input', 'form-control param-label'); i2.placeholder = '顯示名稱'; i2.value = label;
+            const c3 = el('div', 'col-md-2'); const i3 = el('select', 'form-select param-type');
+            ['string', 'number', 'date'].forEach(t => { const o = el('option'); o.value = t; o.textContent = t; if (t === type) o.selected = true; i3.appendChild(o); });
+            const c4 = el('div', 'col-md-2 form-check mt-2'); const i4 = el('input', 'form-check-input param-required'); i4.type = 'checkbox'; i4.checked = required;
+            const lbl = el('label', 'form-check-label', '必填'); c4.appendChild(i4); c4.appendChild(lbl);
+            const c5 = el('div', 'col-md-2'); const btn = el('button', 'btn btn-outline-danger', '移除'); btn.type = 'button';
+            btn.onclick = () => { row.remove(); renderTestParamRows(); };
+            c5.appendChild(btn);
+            [c1, c2, c3, c4, c5].forEach(c => row.appendChild(c));
+            c1.appendChild(i1); c2.appendChild(i2); c3.appendChild(i3);
+            document.getElementById('paramRows').appendChild(row);
+            i1.addEventListener('input', renderTestParamRows);
+            renderTestParamRows();
+        }
+        document.getElementById('addParamBtn').addEventListener('click', () => addParamRow());
+
+        function getParameters() {
+            return Array.from(document.querySelectorAll('.param-row')).map(row => ({
+                key: row.querySelector('.param-key').value.trim(),
+                label: row.querySelector('.param-label').value.trim(),
+                type: row.querySelector('.param-type').value,
+                required: row.querySelector('.param-required').checked
+            })).filter(p => p.key);
+        }
+
+        function renderTestParamRows() {
+            const container = document.getElementById('testParamRows');
+            const existing = {};
+            container.querySelectorAll('input').forEach(i => existing[i.dataset.key] = i.value);
+            container.innerHTML = '';
+            getParameters().forEach(p => {
+                const col = el('div', 'col-md-3');
+                const lbl = el('label', 'form-label small', p.label || p.key);
+                const input = el('input', 'form-control test-param-value');
+                input.dataset.key = p.key;
+                input.value = existing[p.key] || (p.key === 'docNo' ? '0040' : '');
+                col.appendChild(lbl); col.appendChild(input);
+                container.appendChild(col);
+            });
+        }
+
+        // ---------- Template scan / mapping ----------
+        function markerHtml(text) { return '<code>{{' + text + '}}</code>'; }
+
+        function renderScanResult(scan) {
+            const view = document.getElementById('scanResultView');
+            if (!scan || ((scan.fields || []).length === 0 && (scan.collections || []).length === 0)) {
+                view.textContent = '此範本內找不到任何 {{}} 標記';
+                return;
+            }
+            let html = '欄位：' + (scan.fields || []).map(markerHtml).join(' ');
+            (scan.collections || []).forEach(c => {
+                html += '<br/>集合 ' + c.name + '：' + c.columns.map(col => markerHtml(c.name + '.' + col)).join(' ');
+            });
+            view.innerHTML = html;
+        }
+
+        function renderFieldMapping(scan, existingFields) {
+            const body = document.getElementById('fieldMappingBody');
+            body.innerHTML = '';
+            (scan?.fields || []).forEach(f => {
+                const tr = el('tr');
+                const td1 = el('td'); td1.innerHTML = markerHtml(f);
+                const td2 = el('td'); const input = el('input', 'form-control field-mapping-input'); input.dataset.field = f;
+                input.value = (existingFields && existingFields[f]) || '';
+                input.placeholder = '$.' + f;
+                td2.appendChild(input);
+                tr.appendChild(td1); tr.appendChild(td2);
+                body.appendChild(tr);
+            });
+        }
+
+        function isSpreadCovered(columnName, spread) {
+            if (!spread || !spread.prefix) return false;
+            if (!columnName.startsWith(spread.prefix)) return false;
+            const rest = columnName.substring(spread.prefix.length);
+            const n = parseInt(rest, 10);
+            return !isNaN(n) && n >= 1 && n <= (spread.max || 0);
+        }
+
+        function renderCollectionMapping(scan, existingCollections) {
+            const area = document.getElementById('collectionMappingArea');
+            area.innerHTML = '';
+            (scan?.collections || []).forEach(c => {
+                const existing = (existingCollections || []).find(ec => ec.name === c.name) || {};
+                const existingSpread = existing.spread || { from: '$.values', prefix: 'v', max: 13 };
+
+                const box = el('div', 'border rounded p-3 mb-3 collection-box');
+                box.dataset.name = c.name;
+                box.appendChild(el('h6', '', '集合：' + c.name));
+
+                const pathRow = el('div', 'row g-2 mb-2');
+                const pathCol = el('div', 'col-md-6');
+                pathCol.appendChild(el('label', 'form-label small', '陣列來源路徑 (path)'));
+                const pathInput = el('input', 'form-control collection-path'); pathInput.value = existing.path || '';
+                pathInput.placeholder = '$.details';
+                pathCol.appendChild(pathInput);
+                pathRow.appendChild(pathCol);
+                box.appendChild(pathRow);
+
+                const spreadRow = el('div', 'row g-2 mb-2');
+                const s1 = el('div', 'col-md-4'); s1.appendChild(el('label', 'form-label small', 'spread 陣列來源路徑 (相對於每筆項目)'));
+                const spreadFrom = el('input', 'form-control spread-from'); spreadFrom.value = existingSpread.from || ''; spreadFrom.placeholder = '$.values';
+                s1.appendChild(spreadFrom);
+                const s2 = el('div', 'col-md-3'); s2.appendChild(el('label', 'form-label small', '欄位前綴 (prefix)'));
+                const spreadPrefix = el('input', 'form-control spread-prefix'); spreadPrefix.value = existingSpread.prefix || 'v';
+                s2.appendChild(spreadPrefix);
+                const s3 = el('div', 'col-md-3'); s3.appendChild(el('label', 'form-label small', '最大欄數 (max)'));
+                const spreadMax = el('input', 'form-control spread-max'); spreadMax.type = 'number'; spreadMax.value = existingSpread.max || 13;
+                s3.appendChild(spreadMax);
+                [s1, s2, s3].forEach(x => spreadRow.appendChild(x));
+                box.appendChild(spreadRow);
+
+                const colTable = el('table', 'table table-sm');
+                const thead = el('thead', '', '<tr><th style="width:220px">範本標記</th><th>JSONPath（相對於每筆項目）</th></tr>');
+                const tbody = el('tbody');
+                colTable.appendChild(thead); colTable.appendChild(tbody);
+                box.appendChild(colTable);
+
+                function renderColumns() {
+                    tbody.innerHTML = '';
+                    const spread = { prefix: spreadPrefix.value, max: parseInt(spreadMax.value, 10) || 0 };
+                    c.columns.forEach(col => {
+                        const covered = isSpreadCovered(col, spread);
+                        const tr = el('tr');
+                        const td1 = el('td'); td1.innerHTML = markerHtml(c.name + '.' + col);
+                        const td2 = el('td');
+                        if (covered) {
+                            td2.innerHTML = '<span class="text-muted small">由 spread 設定自動產生，無需個別映射</span>';
+                        } else {
+                            const input = el('input', 'form-control collection-column-input'); input.dataset.column = col;
+                            input.value = (existing.columns && existing.columns[col]) || '';
+                            input.placeholder = '$.' + col;
+                            td2.appendChild(input);
+                        }
+                        tr.appendChild(td1); tr.appendChild(td2);
+                        tbody.appendChild(tr);
+                    });
+                }
+                renderColumns();
+                [spreadPrefix, spreadMax].forEach(i => i.addEventListener('input', renderColumns));
+
+                area.appendChild(box);
+            });
+        }
+
+        function applyScanResult(scan, existingMapping) {
+            currentScanResult = scan;
+            renderScanResult(scan);
+            renderFieldMapping(scan, existingMapping?.fields);
+            renderCollectionMapping(scan, existingMapping?.collections);
+        }
+
+        // ---------- Template upload / select ----------
+        document.getElementById('f-templateUpload').addEventListener('change', async (ev) => {
+            const file = ev.target.files[0];
+            if (!file) return;
+            const formData = new FormData();
+            formData.append('file', file);
+            document.getElementById('uploadError').textContent = '';
+            try {
+                const resp = await fetch('@Url.Action("UploadTemplate", "ReportConfig")', { method: 'POST', body: formData });
+                const json = await resp.json();
+                if (!resp.ok) {
+                    document.getElementById('uploadError').textContent = json.message || '上傳失敗';
+                    return;
+                }
+                document.getElementById('templateFileBadge').textContent = json.fileName;
+                document.getElementById('f-templateSelect').value = '';
+                window.__selectedTemplateFile = json.fileName;
+                applyScanResult(json.scanResult, null);
+            } catch (e) {
+                document.getElementById('uploadError').textContent = '上傳失敗：' + e;
+            }
+        });
+
+        document.getElementById('f-templateSelect').addEventListener('change', (ev) => {
+            const fileName = ev.target.value;
+            if (!fileName) return;
+            const url = new URL(window.location.href);
+            url.searchParams.set('code', '@(Model.IsNew ? "new" : Model.OriginalCode)');
+            url.searchParams.set('template', fileName);
+            window.location.href = url.toString();
+        });
+
+        // ---------- Test connection ----------
+        document.getElementById('testConnectionBtn').addEventListener('click', async () => {
+            const headers = {};
+            document.querySelectorAll('.header-row').forEach(row => {
+                const k = row.querySelector('.header-key').value.trim();
+                const v = row.querySelector('.header-value').value;
+                if (k) headers[k] = v;
+            });
+            const parameters = {};
+            document.querySelectorAll('.test-param-value').forEach(i => parameters[i.dataset.key] = i.value);
+
+            const payload = {
+                url: document.getElementById('f-url').value,
+                method: document.getElementById('f-method').value,
+                headers: headers,
+                parameters: parameters,
+                timeoutSec: parseInt(document.getElementById('f-timeout').value, 10) || 30
+            };
+
+            const resultEl = document.getElementById('testConnectionResult');
+            resultEl.textContent = '呼叫中...';
+            try {
+                const resp = await fetch('@Url.Action("TestConnection", "ReportConfig")', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const json = await resp.json();
+                if (json.success) {
+                    try { resultEl.textContent = JSON.stringify(JSON.parse(json.body), null, 2); }
+                    catch { resultEl.textContent = json.body; }
+                } else {
+                    resultEl.textContent = '錯誤：' + json.errorMessage;
+                }
+            } catch (e) {
+                resultEl.textContent = '呼叫失敗：' + e;
+            }
+        });
+
+        // ---------- Submit ----------
+        document.getElementById('editForm').addEventListener('submit', (ev) => {
+            const headers = {};
+            document.querySelectorAll('.header-row').forEach(row => {
+                const k = row.querySelector('.header-key').value.trim();
+                const v = row.querySelector('.header-value').value;
+                if (k) headers[k] = v;
+            });
+
+            const fields = {};
+            document.querySelectorAll('.field-mapping-input').forEach(i => { if (i.value.trim()) fields[i.dataset.field] = i.value.trim(); });
+
+            const collections = Array.from(document.querySelectorAll('.collection-box')).map(box => {
+                const columns = {};
+                box.querySelectorAll('.collection-column-input').forEach(i => { if (i.value.trim()) columns[i.dataset.column] = i.value.trim(); });
+                return {
+                    name: box.dataset.name,
+                    path: box.querySelector('.collection-path').value.trim(),
+                    columns: columns,
+                    spread: {
+                        from: box.querySelector('.spread-from').value.trim(),
+                        prefix: box.querySelector('.spread-prefix').value.trim(),
+                        max: parseInt(box.querySelector('.spread-max').value, 10) || 0
+                    }
+                };
+            });
+
+            const config = {
+                code: document.getElementById('f-code').value.trim(),
+                name: document.getElementById('f-name').value.trim(),
+                templateFile: window.__selectedTemplateFile || initialConfig.templateFile || '',
+                dataSource: {
+                    url: document.getElementById('f-url').value.trim(),
+                    method: document.getElementById('f-method').value,
+                    headers: headers,
+                    timeoutSec: parseInt(document.getElementById('f-timeout').value, 10) || 30
+                },
+                parameters: getParameters(),
+                mapping: {
+                    root: document.getElementById('f-root').value.trim() || '$',
+                    fields: fields,
+                    collections: collections
+                }
+            };
+
+            if (!config.templateFile) {
+                ev.preventDefault();
+                alert('請先上傳或選擇一份範本 xlsx。');
+                return;
+            }
+
+            document.getElementById('configJson').value = JSON.stringify(config);
+        });
+
+        // ---------- Init ----------
+        (function init() {
+            document.getElementById('f-code').value = initialConfig.code || '';
+            document.getElementById('f-name').value = initialConfig.name || '';
+            document.getElementById('f-url').value = (initialConfig.dataSource && initialConfig.dataSource.url) || '';
+            document.getElementById('f-method').value = (initialConfig.dataSource && initialConfig.dataSource.method) || 'GET';
+            document.getElementById('f-timeout').value = (initialConfig.dataSource && initialConfig.dataSource.timeoutSec) || 30;
+            document.getElementById('f-root').value = (initialConfig.mapping && initialConfig.mapping.root) || '$.data';
+
+            if (initialConfig.templateFile) {
+                window.__selectedTemplateFile = initialConfig.templateFile;
+                document.getElementById('templateFileBadge').textContent = initialConfig.templateFile;
+                document.getElementById('f-templateSelect').value = initialConfig.templateFile;
+            }
+
+            const hdrs = (initialConfig.dataSource && initialConfig.dataSource.headers) || {};
+            Object.keys(hdrs).forEach(k => addHeaderRow(k, hdrs[k]));
+
+            const parms = initialConfig.parameters || [];
+            if (parms.length > 0) {
+                parms.forEach(p => addParamRow(p.key, p.label, p.type, p.required));
+            } else {
+                addParamRow('docNo', '單據號', 'string', true);
+            }
+
+            applyScanResult(currentScanResult, initialConfig.mapping);
+        })();
+    </script>
+}

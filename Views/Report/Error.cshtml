@@ -1,0 +1,11 @@
+@model ReportErrorViewModel
+@{
+    ViewData["Title"] = Model.Title;
+}
+
+<div class="alert alert-danger">
+    <h4 class="alert-heading">@Model.Title</h4>
+    <p style="white-space: pre-wrap;">@Model.Message</p>
+</div>
+
+<a asp-controller="Report" asp-action="Index" class="btn btn-secondary">返回產生報表</a>

@@ -1,0 +1,15 @@
+@model ErrorViewModel
+@{
+    ViewData["Title"] = "發生錯誤";
+}
+
+<div class="alert alert-danger">
+    <h4 class="alert-heading">系統發生未預期的錯誤</h4>
+    <p>請稍後再試，或聯絡系統管理員。</p>
+    @if (Model.ShowRequestId)
+    {
+        <p class="mb-0"><strong>Request ID：</strong><code>@Model.RequestId</code></p>
+    }
+</div>
+
+<a asp-controller="Report" asp-action="Index" class="btn btn-secondary">返回首頁</a>

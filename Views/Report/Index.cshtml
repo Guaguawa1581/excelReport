@@ -1,0 +1,82 @@
+@model List<ReportListItemViewModel>
+@{
+    ViewData["Title"] = "產生報表";
+}
+
+<h1 class="mb-4">產生報表</h1>
+
+@if (!Model.Any())
+{
+    <div class="alert alert-warning">
+        目前尚未有任何報表設定，請先到 <a asp-controller="ReportConfig" asp-action="Index">報表設定管理</a> 建立一份設定。
+    </div>
+}
+else
+{
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">選擇報表</div>
+                <div class="list-group list-group-flush">
+                    @foreach (var item in Model)
+                    {
+                        <button type="button" class="list-group-item list-group-item-action report-select" data-code="@item.Code">
+                            @item.Name
+                            <div class="text-muted small">@item.Code</div>
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">輸入參數</div>
+                <div class="card-body">
+                    <form id="generateForm" method="get" asp-controller="Report" asp-action="Generate" target="_blank">
+                        <input type="hidden" name="code" id="selectedCode" />
+                        <p id="noSelectionHint" class="text-muted">請先從左方選擇一份報表。</p>
+                        <div id="paramFields"></div>
+                        <button type="submit" id="submitBtn" class="btn btn-primary" style="display:none">產生並下載 xlsx</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@section Scripts {
+    <script>
+        const reportData = @Html.Raw(Json.Serialize(Model));
+
+        document.querySelectorAll('.report-select').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.report-select').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                const code = btn.dataset.code;
+                const report = reportData.find(r => r.code === code);
+                document.getElementById('selectedCode').value = code;
+                document.getElementById('noSelectionHint').style.display = 'none';
+                document.getElementById('submitBtn').style.display = 'inline-block';
+
+                const container = document.getElementById('paramFields');
+                container.innerHTML = '';
+                (report.parameters || []).forEach(p => {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'mb-3';
+                    const label = document.createElement('label');
+                    label.className = 'form-label';
+                    label.textContent = p.label + (p.required ? ' *' : '');
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.className = 'form-control';
+                    input.name = p.key;
+                    if (p.required) input.required = true;
+                    wrapper.appendChild(label);
+                    wrapper.appendChild(input);
+                    container.appendChild(wrapper);
+                });
+            });
+        });
+    </script>
+}
