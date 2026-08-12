@@ -8,6 +8,11 @@ public class TemplateScanResult
 
     /// <summary>含點號的集合標記，依集合名稱分組，例如 {{items.seq}}。</summary>
     public List<CollectionScanResult> Collections { get; set; } = new();
+
+    /// <summary>圖片標記，例如 [[photo]]（方括號語法，與一般文字標記的 {{}} 語法分開，
+    /// 避免 MiniExcel 套版時誤處理——MiniExcel 完全不認得 [[]]，等它套版完再由
+    /// ReportEngine 另外掃描、下載/解碼並嵌入圖片）。</summary>
+    public List<string> ImageFields { get; set; } = new();
 }
 
 /// <summary>單一集合標記分組結果。</summary>

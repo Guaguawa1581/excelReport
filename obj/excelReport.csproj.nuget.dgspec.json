@@ -1,23 +1,23 @@
 {
   "format": 1,
   "restore": {
-    "D:\\Users\\Yoruru\\Desktop\\Coding\\excelReport\\excelReport.csproj": {}
+    "c:\\working\\excelReport\\excelReport.csproj": {}
   },
   "projects": {
-    "D:\\Users\\Yoruru\\Desktop\\Coding\\excelReport\\excelReport.csproj": {
+    "c:\\working\\excelReport\\excelReport.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\Users\\Yoruru\\Desktop\\Coding\\excelReport\\excelReport.csproj",
+        "projectUniqueName": "c:\\working\\excelReport\\excelReport.csproj",
         "projectName": "excelReport",
-        "projectPath": "D:\\Users\\Yoruru\\Desktop\\Coding\\excelReport\\excelReport.csproj",
-        "packagesPath": "C:\\Users\\Yoruru\\.nuget\\packages\\",
-        "outputPath": "D:\\Users\\Yoruru\\Desktop\\Coding\\excelReport\\obj\\",
+        "projectPath": "c:\\working\\excelReport\\excelReport.csproj",
+        "packagesPath": "C:\\Users\\Frank\\.nuget\\packages\\",
+        "outputPath": "c:\\working\\excelReport\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
         ],
         "configFilePaths": [
-          "C:\\Users\\Yoruru\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Users\\Frank\\AppData\\Roaming\\NuGet\\NuGet.Config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
@@ -82,7 +82,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.305/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.308/PortableRuntimeIdentifierGraph.json"
         }
       }
     }

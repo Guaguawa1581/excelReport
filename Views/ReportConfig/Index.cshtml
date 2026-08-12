@@ -37,6 +37,10 @@
                 <td>@string.Join("、", config.Parameters.Select(p => p.Label))</td>
                 <td>
                     <a class="btn btn-sm btn-outline-primary" asp-action="Edit" asp-route-code="@config.Code">編輯</a>
+                    @if (!string.IsNullOrWhiteSpace(config.TemplateFile))
+                    {
+                        <a class="btn btn-sm btn-outline-secondary" asp-action="DownloadTemplate" asp-route-fileName="@config.TemplateFile">下載範本</a>
+                    }
                     <form method="post" asp-action="Copy" asp-route-code="@config.Code" class="d-inline">
                         @Html.AntiForgeryToken()
                         <button type="submit" class="btn btn-sm btn-outline-secondary">複製</button>

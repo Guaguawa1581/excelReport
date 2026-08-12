@@ -11,18 +11,7 @@
 }
 @if (!string.IsNullOrEmpty(Model.ErrorMessage))
 {
-    <div class="alert alert-danger">
-        <div>@Model.ErrorMessage</div>
-        @if (Model.MissingMappings.Any())
-        {
-            <ul class="mb-0">
-                @foreach (var m in Model.MissingMappings)
-                {
-                    <li><code>@m</code></li>
-                }
-            </ul>
-        }
-    </div>
+    <div class="alert alert-danger">@Model.ErrorMessage</div>
 }
 
 <form method="post" asp-action="Edit" id="editForm">
@@ -65,6 +54,7 @@
                 </div>
                 <div class="col-md-2">
                     <span class="badge text-bg-info" id="templateFileBadge">尚未選擇</span>
+                    <a id="downloadTemplateLink" class="btn btn-sm btn-outline-secondary mt-1" style="display:none" target="_blank">下載範本</a>
                 </div>
             </div>
             <div id="uploadError" class="text-danger mt-2"></div>
@@ -128,6 +118,7 @@
                 <input type="text" class="form-control" id="f-root" value="$.data" style="max-width:300px" />
             </div>
             <h6>一般欄位</h6>
+            <div class="text-muted small mb-2">JSONPath 留空的話，預設會用 <code>$.標記名稱</code>（例如 <code>{{docNo}}</code> 預設對應 <code>$.docNo</code>）。</div>
             <table class="table table-sm" id="fieldMappingTable">
                 <thead><tr><th style="width:220px">範本標記</th><th>JSONPath</th></tr></thead>
                 <tbody id="fieldMappingBody"></tbody>
@@ -135,6 +126,13 @@
 
             <h6 class="mt-4">集合欄位</h6>
             <div id="collectionMappingArea"></div>
+
+            <h6 class="mt-4">圖片欄位</h6>
+            <div class="text-muted small mb-2">範本中 <code>[[標記]]</code> 這種方括號語法（與一般 <code>{{標記}}</code> 不同）。填 <code>$</code> 開頭的 JSONPath 會從資料來源取值（值可以是圖片 URL 或 base64 內容）；不是 <code>$</code> 開頭則直接當成固定值使用（例如寫死一個圖片 URL）。留白或抓取失敗時該張圖片會直接略過，不會擋下儲存或報表產生。</div>
+            <table class="table table-sm" id="imageMappingTable">
+                <thead><tr><th style="width:220px">範本標記</th><th>JSONPath</th><th style="width:140px">來源型別</th></tr></thead>
+                <tbody id="imageMappingBody"></tbody>
+            </table>
         </div>
     </div>
 
@@ -215,16 +213,22 @@
         // ---------- Template scan / mapping ----------
         function markerHtml(text) { return '<code>{{' + text + '}}</code>'; }
 
+        function imageMarkerHtml(text) { return '<code>[[' + text + ']]</code>'; }
+
         function renderScanResult(scan) {
             const view = document.getElementById('scanResultView');
-            if (!scan || ((scan.fields || []).length === 0 && (scan.collections || []).length === 0)) {
-                view.textContent = '此範本內找不到任何 {{}} 標記';
+            const hasAny = scan && ((scan.fields || []).length > 0 || (scan.collections || []).length > 0 || (scan.imageFields || []).length > 0);
+            if (!hasAny) {
+                view.textContent = '此範本內找不到任何 {{}} 或 [[]] 標記';
                 return;
             }
             let html = '欄位：' + (scan.fields || []).map(markerHtml).join(' ');
             (scan.collections || []).forEach(c => {
                 html += '<br/>集合 ' + c.name + '：' + c.columns.map(col => markerHtml(c.name + '.' + col)).join(' ');
             });
+            if ((scan.imageFields || []).length > 0) {
+                html += '<br/>圖片：' + scan.imageFields.map(imageMarkerHtml).join(' ');
+            }
             view.innerHTML = html;
         }
 
@@ -232,11 +236,12 @@
             const body = document.getElementById('fieldMappingBody');
             body.innerHTML = '';
             (scan?.fields || []).forEach(f => {
+                const existing = existingFields && existingFields[f];
                 const tr = el('tr');
                 const td1 = el('td'); td1.innerHTML = markerHtml(f);
                 const td2 = el('td'); const input = el('input', 'form-control field-mapping-input'); input.dataset.field = f;
-                input.value = (existingFields && existingFields[f]) || '';
-                input.placeholder = '$.' + f;
+                input.value = existing || '';
+                input.placeholder = '$.' + f + '（留空預設用這個）';
                 td2.appendChild(input);
                 tr.appendChild(td1); tr.appendChild(td2);
                 body.appendChild(tr);
@@ -285,7 +290,7 @@
                 box.appendChild(spreadRow);
 
                 const colTable = el('table', 'table table-sm');
-                const thead = el('thead', '', '<tr><th style="width:220px">範本標記</th><th>JSONPath（相對於每筆項目）</th></tr>');
+                const thead = el('thead', '', '<tr><th style="width:220px">範本標記</th><th>JSONPath（相對於每筆項目，留空預設用標記名稱）</th></tr>');
                 const tbody = el('tbody');
                 colTable.appendChild(thead); colTable.appendChild(tbody);
                 box.appendChild(colTable);
@@ -295,6 +300,7 @@
                     const spread = { prefix: spreadPrefix.value, max: parseInt(spreadMax.value, 10) || 0 };
                     c.columns.forEach(col => {
                         const covered = isSpreadCovered(col, spread);
+                        const existingCol = existing.columns && existing.columns[col];
                         const tr = el('tr');
                         const td1 = el('td'); td1.innerHTML = markerHtml(c.name + '.' + col);
                         const td2 = el('td');
@@ -302,7 +308,7 @@
                             td2.innerHTML = '<span class="text-muted small">由 spread 設定自動產生，無需個別映射</span>';
                         } else {
                             const input = el('input', 'form-control collection-column-input'); input.dataset.column = col;
-                            input.value = (existing.columns && existing.columns[col]) || '';
+                            input.value = existingCol || '';
                             input.placeholder = '$.' + col;
                             td2.appendChild(input);
                         }
@@ -317,11 +323,52 @@
             });
         }
 
+        function makeImageSourceTypeSelect(cls, currentType) {
+            const select = el('select', 'form-select ' + cls);
+            ['auto', 'url', 'base64'].forEach(t => {
+                const o = el('option', '', t);
+                o.value = t;
+                if ((currentType || 'auto') === t) o.selected = true;
+                select.appendChild(o);
+            });
+            return select;
+        }
+
+        function renderImageMapping(scan, existingImages) {
+            const body = document.getElementById('imageMappingBody');
+            body.innerHTML = '';
+            (scan?.imageFields || []).forEach(f => {
+                const existing = existingImages && existingImages[f];
+                const tr = el('tr');
+                const td1 = el('td'); td1.innerHTML = imageMarkerHtml(f);
+                const td2 = el('td'); const input = el('input', 'form-control image-mapping-input'); input.dataset.field = f;
+                input.value = (existing && existing.path) || '';
+                input.placeholder = '$.' + f + ' 或直接填固定圖片 URL';
+                td2.appendChild(input);
+                const td3 = el('td'); const typeSelect = makeImageSourceTypeSelect('image-mapping-type', existing && existing.sourceType); typeSelect.dataset.field = f;
+                td3.appendChild(typeSelect);
+                tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+                body.appendChild(tr);
+            });
+        }
+
         function applyScanResult(scan, existingMapping) {
             currentScanResult = scan;
             renderScanResult(scan);
             renderFieldMapping(scan, existingMapping?.fields);
             renderCollectionMapping(scan, existingMapping?.collections);
+            renderImageMapping(scan, existingMapping?.images);
+        }
+
+        // ---------- Template download link ----------
+        function updateDownloadLink(fileName) {
+            const link = document.getElementById('downloadTemplateLink');
+            if (fileName) {
+                link.href = '@Url.Action("DownloadTemplate", "ReportConfig")?fileName=' + encodeURIComponent(fileName);
+                link.style.display = 'inline-block';
+            } else {
+                link.style.display = 'none';
+            }
         }
 
         // ---------- Template upload / select ----------
@@ -341,6 +388,7 @@
                 document.getElementById('templateFileBadge').textContent = json.fileName;
                 document.getElementById('f-templateSelect').value = '';
                 window.__selectedTemplateFile = json.fileName;
+                updateDownloadLink(json.fileName);
                 applyScanResult(json.scanResult, null);
             } catch (e) {
                 document.getElementById('uploadError').textContent = '上傳失敗：' + e;
@@ -405,11 +453,17 @@
             });
 
             const fields = {};
-            document.querySelectorAll('.field-mapping-input').forEach(i => { if (i.value.trim()) fields[i.dataset.field] = i.value.trim(); });
+            document.querySelectorAll('.field-mapping-input').forEach(i => {
+                if (!i.value.trim()) return;
+                fields[i.dataset.field] = i.value.trim();
+            });
 
             const collections = Array.from(document.querySelectorAll('.collection-box')).map(box => {
                 const columns = {};
-                box.querySelectorAll('.collection-column-input').forEach(i => { if (i.value.trim()) columns[i.dataset.column] = i.value.trim(); });
+                box.querySelectorAll('.collection-column-input').forEach(i => {
+                    if (!i.value.trim()) return;
+                    columns[i.dataset.column] = i.value.trim();
+                });
                 return {
                     name: box.dataset.name,
                     path: box.querySelector('.collection-path').value.trim(),
@@ -420,6 +474,13 @@
                         max: parseInt(box.querySelector('.spread-max').value, 10) || 0
                     }
                 };
+            });
+
+            const images = {};
+            document.querySelectorAll('.image-mapping-input').forEach(i => {
+                if (!i.value.trim()) return;
+                const typeSelect = document.querySelector('.image-mapping-type[data-field="' + i.dataset.field + '"]');
+                images[i.dataset.field] = { path: i.value.trim(), sourceType: typeSelect ? typeSelect.value : 'auto' };
             });
 
             const config = {
@@ -436,7 +497,8 @@
                 mapping: {
                     root: document.getElementById('f-root').value.trim() || '$',
                     fields: fields,
-                    collections: collections
+                    collections: collections,
+                    images: images
                 }
             };
 
@@ -462,6 +524,7 @@
                 window.__selectedTemplateFile = initialConfig.templateFile;
                 document.getElementById('templateFileBadge').textContent = initialConfig.templateFile;
                 document.getElementById('f-templateSelect').value = initialConfig.templateFile;
+                updateDownloadLink(initialConfig.templateFile);
             }
 
             const hdrs = (initialConfig.dataSource && initialConfig.dataSource.headers) || {};
@@ -470,9 +533,10 @@
             const parms = initialConfig.parameters || [];
             if (parms.length > 0) {
                 parms.forEach(p => addParamRow(p.key, p.label, p.type, p.required));
-            } else {
-                addParamRow('docNo', '單據號', 'string', true);
-            }
+            } 
+            // else {
+            //     addParamRow('docNo', '單據號', 'string', true);
+            // }
 
             applyScanResult(currentScanResult, initialConfig.mapping);
         })();

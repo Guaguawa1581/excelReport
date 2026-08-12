@@ -6,6 +6,7 @@ public class ReportListItemViewModel
     public string Code { get; set; } = "";
     public string Name { get; set; } = "";
     public List<ParameterDef> Parameters { get; set; } = new();
+    public string TemplateFile { get; set; } = "";
 }
 
 /// <summary>/ReportConfig/Edit 頁面的編輯用視圖模型。</summary>
@@ -24,9 +25,6 @@ public class ReportConfigEditViewModel
     /// <summary>測試連線後端回傳的原始 JSON 內容。</summary>
     public string? TestConnectionResult { get; set; }
     public bool TestConnectionSuccess { get; set; }
-
-    /// <summary>儲存驗證失敗時，列出缺漏映射的標記。</summary>
-    public List<string> MissingMappings { get; set; } = new();
 
     public string? ErrorMessage { get; set; }
     public string? SuccessMessage { get; set; }

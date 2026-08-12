@@ -1,0 +1,35 @@
+{"time":"2026-08-12 09:22:01","code":"IPQC_EXT_INSPECT","parameters":{"docNo":"0040"},"elapsedMs":206,"success":true,"error":null}
+{"time":"2026-08-12 09:22:13","code":"IPQC_EXT_INSPECT","parameters":{"docNo":"0099"},"elapsedMs":17,"success":true,"error":null}
+{"time":"2026-08-12 11:00:40","code":"IPQC_EXT_INSPECT","parameters":{"docNo":"0040"},"elapsedMs":219,"success":true,"error":null}
+{"time":"2026-08-12 11:02:37","code":"IPQC_EXT_INSPECT","parameters":{"docNo":"0040"},"elapsedMs":9,"success":true,"error":null}
+{"time":"2026-08-12 11:11:14","code":"IPQC_EXT_INSPECT","parameters":{"docNo":"0703"},"elapsedMs":346,"success":true,"error":null}
+{"time":"2026-08-12 11:17:33","code":"IPQC_EXT_INSPECT","parameters":{"docNo":"0040"},"elapsedMs":139,"success":true,"error":null}
+{"time":"2026-08-12 11:18:26","code":"IPQC_EXT_INSPECT","parameters":{"docNo":"0040"},"elapsedMs":120,"success":true,"error":null}
+{"time":"2026-08-12 11:27:41","code":"IPQC_EXT_INSPECT","parameters":{"docNo":"0040"},"elapsedMs":145,"success":true,"error":null}
+{"time":"2026-08-12 11:41:50","code":"IPQC_EXT_INSPECT","parameters":{"docNo":"0040"},"elapsedMs":123,"success":true,"error":null}
+{"time":"2026-08-12 12:07:30","code":"IPQC_EXT_INSPECT","parameters":{},"elapsedMs":398,"success":false,"error":"欄位「seqNo」的 JSONPath 找不到對應節點：$.seqNo"}
+{"time":"2026-08-12 12:15:35","code":"IPQC_EXT_INSPECT","parameters":{},"elapsedMs":223,"success":true,"error":null}
+{"time":"2026-08-12 12:17:35","code":"IPQC_EXT_INSPECT","parameters":{},"elapsedMs":131,"success":true,"error":null}
+{"time":"2026-08-12 14:36:52","code":"IPQC_EXT_INSPECT","parameters":{"docNo":"0040"},"elapsedMs":423,"success":true,"error":null}
+{"time":"2026-08-12 14:37:25","code":"IPQC_EXT_INSPECT","parameters":{"docNo":"0040"},"elapsedMs":33,"success":true,"error":null}
+{"time":"2026-08-12 14:37:39","code":"IPQC_EXT_INSPECT","parameters":{"docNo":"0040"},"elapsedMs":15,"success":true,"error":null}
+{"time":"2026-08-12 14:38:22","code":"IPQC_EXT_INSPECT","parameters":{"docNo":"0040"},"elapsedMs":427,"success":true,"error":null}
+{"time":"2026-08-12 15:22:50","code":"IPQC_EXT_INSPECT","parameters":{},"elapsedMs":538,"success":true,"error":null}
+{"time":"2026-08-12 17:15:39","code":"SupplierInsRecords","parameters":{"insReq":"20260703133329170"},"elapsedMs":267595,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-12 17:17:09","code":"SupplierInsRecords","parameters":{"insReq":"20260703133329170"},"elapsedMs":60567,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-12 17:17:48","code":"IPQC_EXT_INSPECT","parameters":{},"elapsedMs":475,"success":true,"error":null}
+{"time":"2026-08-12 17:18:56","code":"SupplierInsRecords","parameters":{"insReq":"20260703133329170"},"elapsedMs":12264,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-12 17:30:24","code":"IPQC_EXT_INSPECT","parameters":{"docNo":"0040"},"elapsedMs":147,"success":false,"error":"找不到範本檔案：sample_inspection.xlsx"}
+{"time":"2026-08-12 17:31:14","code":"IPQC_EXT_INSPECT","parameters":{"docNo":"0040"},"elapsedMs":1070,"success":true,"error":null}
+{"time":"2026-08-12 17:39:10","code":"SupplierInsRecords","parameters":{"insReq":"20260703133329170"},"elapsedMs":10287,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-12 17:43:58","code":"IPQC_EXT_INSPECT","parameters":{"docNo":"0040"},"elapsedMs":445,"success":true,"error":null}
+{"time":"2026-08-12 17:58:13","code":"SupplierInsRecords","parameters":{"insReq":"20260703133329170"},"elapsedMs":6389,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-12 17:59:21","code":"SupplierInsRecords","parameters":{"insReq":"20260703133329170"},"elapsedMs":2667,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-12 18:04:49","code":"SupplierInsRecords","parameters":{"insReq":"20260703133329170"},"elapsedMs":296434,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-12 18:07:10","code":"SupplierInsRecords","parameters":{"insReq":"20260703133329170"},"elapsedMs":4019,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-12 18:07:55","code":"SupplierInsRecords","parameters":{"insReq":"20260703133329170"},"elapsedMs":5242,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-12 18:10:20","code":"SupplierInsRecords","parameters":{"insReq":"20260703133329170"},"elapsedMs":741,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-12 18:16:11","code":"SupplierInsRecords","parameters":{"insReq":"20260703133329170"},"elapsedMs":672,"success":true,"error":null}
+{"time":"2026-08-12 18:32:00","code":"SupplierInsRecords","parameters":{"insReq":"20260703133329170"},"elapsedMs":3159,"success":true,"error":null}
+{"time":"2026-08-12 18:33:33","code":"SupplierInsRecords","parameters":{"insReq":"20260703133429937"},"elapsedMs":10430,"success":true,"error":null}
+{"time":"2026-08-12 18:34:42","code":"SupplierInsRecords","parameters":{"insReq":"20260703133329170"},"elapsedMs":435,"success":true,"error":null}

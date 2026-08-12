@@ -29,12 +29,16 @@ public class ParameterDef
     public bool Required { get; set; }
 }
 
-/// <summary>範本標記與 JSONPath 的映射設定。</summary>
+/// <summary>
+/// 範本標記與 JSONPath 的映射設定。Fields/Collections.Columns 的 value 是 JSONPath 字串；
+/// 留空時 ReportEngine 會自動用 "$.{標記名稱}" 當預設路徑，不需要每個標記都手動填寫。
+/// </summary>
 public class MappingConfig
 {
     public string Root { get; set; } = "$";
     public Dictionary<string, string> Fields { get; set; } = new();
     public List<CollectionMapping> Collections { get; set; } = new();
+    public Dictionary<string, ImageMapping> Images { get; set; } = new();
 }
 
 /// <summary>集合（明細）映射設定。</summary>
@@ -52,4 +56,16 @@ public class SpreadConfig
     public string From { get; set; } = "";
     public string Prefix { get; set; } = "v";
     public int Max { get; set; } = 13;
+}
+
+/// <summary>
+/// 圖片欄位映射。path 以 "$" 開頭時視為 JSONPath（指向的值可以是圖片 URL 或 base64 內容）；
+/// 不以 "$" 開頭則直接當成固定值使用（例如寫死的圖片 URL），不會嘗試用 JSONPath 解析。
+/// sourceType=auto（預設）依內容自動判斷（http(s):// 開頭視為 URL，否則視為 base64）；
+/// 也可以明確指定 url 或 base64。找不到節點或抓取/解碼失敗時，該圖片直接略過，不會中斷報表產生。
+/// </summary>
+public class ImageMapping
+{
+    public string Path { get; set; } = "";
+    public string SourceType { get; set; } = "auto";
 }

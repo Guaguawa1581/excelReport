@@ -10,6 +10,10 @@ public class ReportTemplateScanner : IReportTemplateScanner
 {
     private static readonly Regex MarkerRegex = new(@"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}", RegexOptions.Compiled);
 
+    /// <summary>圖片標記語法 [[fieldName]]，與一般文字標記的 {{}} 語法分開，
+    /// MiniExcel 完全不認得這個語法、套版時會原樣留著，等 ReportEngine 另外處理。</summary>
+    private static readonly Regex ImageMarkerRegex = new(@"\[\[\s*([a-zA-Z0-9_.]+)\s*\]\]", RegexOptions.Compiled);
+
     /// <summary>保留欄位名，引擎會自動補上空字串值，不需要（也不應該）讓使用者手動映射。</summary>
     private const string ReservedColumnName = "_str";
 
@@ -17,6 +21,7 @@ public class ReportTemplateScanner : IReportTemplateScanner
     {
         var fields = new List<string>();
         var collections = new Dictionary<string, List<string>>();
+        var imageFields = new List<string>();
 
         using var stream = new MemoryStream(templateBytes);
         using var document = SpreadsheetDocument.Open(stream, false);
@@ -56,12 +61,19 @@ public class ReportTemplateScanner : IReportTemplateScanner
                         if (!columns.Contains(columnName)) columns.Add(columnName);
                     }
                 }
+
+                foreach (Match match in ImageMarkerRegex.Matches(text))
+                {
+                    var marker = match.Groups[1].Value;
+                    if (!imageFields.Contains(marker)) imageFields.Add(marker);
+                }
             }
         }
 
         return new TemplateScanResult
         {
             Fields = fields,
+            ImageFields = imageFields,
             Collections = collections
                 .Select(kv => new CollectionScanResult { Name = kv.Key, Columns = kv.Value })
                 .ToList()

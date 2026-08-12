@@ -12,9 +12,6 @@ namespace excelReport.Services;
 /// </summary>
 public static class TemplateSeeder
 {
-    private const int LabelSpan = 2;
-    private const int ValueSpan = 5;
-    private const int FieldsPerRow = 3;
     private const int TotalColumns = 21; // 7 個明細固定欄 + 13 個量測欄 + 1 個結果欄
 
     public static void EnsureSampleTemplate(string templatesDir, string fileName)
@@ -56,7 +53,7 @@ public static class TemplateSeeder
         // 沒有這個設定，Excel 會忽略 pageSetup 的 fitToWidth/fitToHeight，改用 scale=100%，
         // 導致友列印時被硬切成好幾頁寬。
         worksheet.Append(new SheetProperties { PageSetupProperties = new PageSetupProperties { FitToPage = true } });
-        worksheet.Append(new SheetDimension { Reference = $"A1:{ColumnLetter(TotalColumns)}10" });
+        worksheet.Append(new SheetDimension { Reference = $"A1:{ColumnLetter(TotalColumns)}{DetailMarkerRowIndex}" });
         worksheet.Append(new SheetFormatProperties { DefaultRowHeight = 18, DefaultColumnWidth = 10 });
         worksheet.Append(columns);
         worksheet.Append(sheetData);
@@ -83,12 +80,12 @@ public static class TemplateSeeder
         };
         sheets.Append(sheet);
 
-        // 重複標題列 $1:$9，讓多頁列印時每頁都帶著表頭與明細表頭。
+        // 重複標題列 $1:$10，讓多頁列印時每頁都帶著表頭與明細表頭。
         var definedNames = new DefinedNames();
         var printTitles = new DefinedName
         {
             Name = "_xlnm.Print_Titles",
-            Text = $"'{sheet.Name}'!$1:$9"
+            Text = $"'{sheet.Name}'!$1:${DetailHeaderRowIndex}"
         };
         definedNames.Append(printTitles);
         workbookPart.Workbook.Append(definedNames);
@@ -127,49 +124,68 @@ public static class TemplateSeeder
     {
         var row = new Row { RowIndex = 1, Height = 60, CustomHeight = true };
         var text = "銳泰精密工具股份有限公司\nRE-DAI PRECISION TOOLS CO., LTD\n外部檢驗紀錄表";
+
+        // 右上角保留 4 欄給 [[photo]] 圖片標記（方括號語法，MiniExcel 不認得，套版後
+        // 由 ReportEngine 另外掃描、下載/解碼並用 OpenXML 嵌入圖片，詳見 ReportEngine.EmbedImagesAsync）。
+        const int photoColumns = 4;
+        var companyEndCol = TotalColumns - photoColumns;
+
         row.Append(CreateInlineStringCell("A1", text, 1));
-        for (var col = 2; col <= TotalColumns; col++)
+        for (var col = 2; col <= companyEndCol; col++)
         {
             row.Append(CreateInlineStringCell(CellRef(col, 1), "", 1));
         }
+        mergeCells.Append(new MergeCell { Reference = $"A1:{CellRef(companyEndCol, 1)}" });
+
+        var photoStart = companyEndCol + 1;
+        row.Append(CreateInlineStringCell(CellRef(photoStart, 1), "[[photo]]", 7));
+        for (var col = photoStart + 1; col <= TotalColumns; col++)
+        {
+            row.Append(CreateInlineStringCell(CellRef(col, 1), "", 7));
+        }
+        mergeCells.Append(new MergeCell { Reference = $"{CellRef(photoStart, 1)}:{CellRef(TotalColumns, 1)}" });
+
         sheetData.Append(row);
-        mergeCells.Append(new MergeCell { Reference = $"A1:{CellRef(TotalColumns, 1)}" });
     }
 
-    /// <summary>
-    /// 保留標記，永遠對應空字串，附加在每個單值標記後面讓儲存格內含「多個標記」。
-    /// MiniExcel 套版時，單一標記且內容像數字（例如 "0040"）會被判斷成數值型別而遺失前導零；
-    /// 只要儲存格內有一個以上的標記，MiniExcel 就會保留為文字型別，藉此避免此問題。
-    /// </summary>
-    private const string StrGuardMarker = "{{_str}}";
-
-    private static string WithStrGuard(string marker) => marker + StrGuardMarker;
-
-    private static readonly (string Label, string Placeholder)[] HeaderFields =
+    private static readonly (string Label, string Name)[] HeaderFields =
     {
-        ("單據號", "{{docNo}}"), ("序號", "{{seqNo}}"), ("來源單據", "{{sourceDoc}}"),
-        ("品號", "{{partNo}}"), ("QC模組", "{{qcModule}}"), ("製程代碼", "{{processCode}}"),
-        ("數量", "{{qty}}"), ("品名", "{{partName}}"), ("製程名稱", "{{processName}}"),
-        ("規格", "{{spec}}"),
-        ("檢驗點", "{{inspectPoint}}"), ("廠商", "{{vendor}}"), ("備註", "{{remark}}"),
-        ("日期", "{{date}}"), ("檢驗備註", "{{inspectRemark}}"), ("檢驗規範", "{{inspectSpec}}"),
+        ("單據號", "docNo"), ("序號", "seqNo"), ("來源單據", "sourceDoc"),
+        ("品號", "partNo"), ("QC模組", "qcModule"), ("製程代碼", "processCode"), ("數量", "qty"),
+        ("品名", "partName"), ("製程名稱", "processName"),
+        ("規格", "spec"),
+        ("檢驗點", "inspectPoint"), ("廠商", "vendor"), ("備註", "remark"), ("日期", "date"),
+        ("檢驗備註", "inspectRemark"),
+        ("檢驗規範", "inspectSpec"),
     };
 
+    private static readonly Dictionary<string, string> FieldLabelByName =
+        HeaderFields.ToDictionary(f => f.Name, f => f.Label);
+
+    private static string CellTextFor(string fieldName) => $"{{{{{fieldName}}}}}";
+
+    /// <summary>
+    /// 每列可容納不同數量的 label/value 組，依組數平分欄寬（餘數分給最後一組），
+    /// 讓表頭區塊可以是 3 組一列、4 組一列或單組獨占整列（labelSpan 通常較窄）。
+    /// </summary>
     private static void AppendFieldRows(SheetData sheetData, MergeCells mergeCells)
     {
-        // Row2-4: 每列 3 組 label/value；Row5: 規格獨占整列；Row6-7: 每列 3 組；Row8: 留白緩衝列。
         var rowIndex = 2;
-        var fieldIdx = 0;
 
-        void AppendTripleRow(int rIdx)
+        void AppendGroupRow(int rIdx, int height, string[] names, int labelSpan)
         {
-            var row = new Row { RowIndex = (uint)rIdx, Height = 20, CustomHeight = true };
+            var row = new Row { RowIndex = (uint)rIdx, Height = height, CustomHeight = true };
+            var n = names.Length;
+            var valueColsTotal = TotalColumns - labelSpan * n;
+            var baseValueSpan = valueColsTotal / n;
+            var extra = valueColsTotal % n; // 除不盡的欄數分給最後一組
             var col = 1;
-            for (var f = 0; f < FieldsPerRow; f++)
+            for (var i = 0; i < n; i++)
             {
-                var (label, placeholder) = HeaderFields[fieldIdx++];
+                var name = names[i];
+                var label = FieldLabelByName[name];
                 var labelStart = col;
-                var labelEnd = col + LabelSpan - 1;
+                var labelEnd = col + labelSpan - 1;
                 row.Append(CreateInlineStringCell(CellRef(labelStart, rIdx), label, 2));
                 for (var c = labelStart + 1; c <= labelEnd; c++)
                 {
@@ -180,9 +196,10 @@ public static class TemplateSeeder
                     mergeCells.Append(new MergeCell { Reference = $"{CellRef(labelStart, rIdx)}:{CellRef(labelEnd, rIdx)}" });
                 }
 
+                var valueSpan = baseValueSpan + (i == n - 1 ? extra : 0);
                 var valueStart = labelEnd + 1;
-                var valueEnd = valueStart + ValueSpan - 1;
-                row.Append(CreateInlineStringCell(CellRef(valueStart, rIdx), WithStrGuard(placeholder), 3));
+                var valueEnd = valueStart + valueSpan - 1;
+                row.Append(CreateInlineStringCell(CellRef(valueStart, rIdx), CellTextFor(name), 3));
                 for (var c = valueStart + 1; c <= valueEnd; c++)
                 {
                     row.Append(CreateInlineStringCell(CellRef(c, rIdx), "", 3));
@@ -197,42 +214,27 @@ public static class TemplateSeeder
             sheetData.Append(row);
         }
 
-        void AppendSpecRow(int rIdx)
+        AppendGroupRow(rowIndex++, 20, new[] { "docNo", "seqNo", "sourceDoc" }, 2);            // row2
+        AppendGroupRow(rowIndex++, 20, new[] { "partNo", "qcModule", "processCode", "qty" }, 1); // row3
+        AppendGroupRow(rowIndex++, 20, new[] { "partName", "processName" }, 2);                // row4
+        AppendGroupRow(rowIndex++, 24, new[] { "spec" }, 2);                                   // row5
+        AppendGroupRow(rowIndex++, 20, new[] { "inspectPoint", "vendor", "remark", "date" }, 1); // row6
+        AppendGroupRow(rowIndex++, 20, new[] { "inspectRemark" }, 2);                          // row7
+        AppendGroupRow(rowIndex++, 20, new[] { "inspectSpec" }, 2);                            // row8
+
+        AppendSectionTitleRow(sheetData, mergeCells, rowIndex++, "子報表");                     // row9
+    }
+
+    private static void AppendSectionTitleRow(SheetData sheetData, MergeCells mergeCells, int rIdx, string title)
+    {
+        var row = new Row { RowIndex = (uint)rIdx, Height = 22, CustomHeight = true };
+        row.Append(CreateInlineStringCell(CellRef(1, rIdx), title, 6));
+        for (var c = 2; c <= TotalColumns; c++)
         {
-            var row = new Row { RowIndex = (uint)rIdx, Height = 24, CustomHeight = true };
-            var (label, placeholder) = HeaderFields[fieldIdx++];
-            row.Append(CreateInlineStringCell(CellRef(1, rIdx), label, 2));
-            row.Append(CreateInlineStringCell(CellRef(2, rIdx), "", 2));
-            mergeCells.Append(new MergeCell { Reference = $"{CellRef(1, rIdx)}:{CellRef(2, rIdx)}" });
-
-            row.Append(CreateInlineStringCell(CellRef(3, rIdx), WithStrGuard(placeholder), 3));
-            for (var c = 4; c <= TotalColumns; c++)
-            {
-                row.Append(CreateInlineStringCell(CellRef(c, rIdx), "", 3));
-            }
-            mergeCells.Append(new MergeCell { Reference = $"{CellRef(3, rIdx)}:{CellRef(TotalColumns, rIdx)}" });
-            sheetData.Append(row);
+            row.Append(CreateInlineStringCell(CellRef(c, rIdx), "", 6));
         }
-
-        void AppendSpacerRow(int rIdx)
-        {
-            var row = new Row { RowIndex = (uint)rIdx, Height = 10, CustomHeight = true };
-            row.Append(CreateInlineStringCell(CellRef(1, rIdx), "", 3));
-            for (var c = 2; c <= TotalColumns; c++)
-            {
-                row.Append(CreateInlineStringCell(CellRef(c, rIdx), "", 3));
-            }
-            mergeCells.Append(new MergeCell { Reference = $"{CellRef(1, rIdx)}:{CellRef(TotalColumns, rIdx)}" });
-            sheetData.Append(row);
-        }
-
-        AppendTripleRow(rowIndex++); // row2
-        AppendTripleRow(rowIndex++); // row3
-        AppendTripleRow(rowIndex++); // row4
-        AppendSpecRow(rowIndex++);   // row5
-        AppendTripleRow(rowIndex++); // row6
-        AppendTripleRow(rowIndex++); // row7
-        AppendSpacerRow(rowIndex++); // row8
+        mergeCells.Append(new MergeCell { Reference = $"{CellRef(1, rIdx)}:{CellRef(TotalColumns, rIdx)}" });
+        sheetData.Append(row);
     }
 
     private static readonly string[] DetailHeaderLabels = BuildDetailHeaderLabels();
@@ -248,33 +250,32 @@ public static class TemplateSeeder
         return labels.ToArray();
     }
 
+    private const int DetailHeaderRowIndex = 10;
+    private const int DetailMarkerRowIndex = 11;
+
     private static void AppendDetailHeaderRow(SheetData sheetData)
     {
-        var row = new Row { RowIndex = 9, Height = 20, CustomHeight = true };
+        var row = new Row { RowIndex = DetailHeaderRowIndex, Height = 20, CustomHeight = true };
         for (var c = 1; c <= TotalColumns; c++)
         {
-            row.Append(CreateInlineStringCell(CellRef(c, 9), DetailHeaderLabels[c - 1], 4));
+            row.Append(CreateInlineStringCell(CellRef(c, DetailHeaderRowIndex), DetailHeaderLabels[c - 1], 4));
         }
         sheetData.Append(row);
     }
 
     private static void AppendDetailMarkerRow(SheetData sheetData)
     {
-        var row = new Row { RowIndex = 10, Height = 18, CustomHeight = true };
-        var markers = new List<string>
-        {
-            "{{items.seq}}", "{{items.itemName}}", "{{items.point}}", "{{items.std}}",
-            "{{items.lower}}", "{{items.upper}}", "{{items.gauge}}"
-        };
+        var row = new Row { RowIndex = DetailMarkerRowIndex, Height = 18, CustomHeight = true };
+        var columnNames = new List<string> { "seq", "itemName", "point", "std", "lower", "upper", "gauge" };
         for (var i = 1; i <= 13; i++)
         {
-            markers.Add($"{{{{items.v{i}}}}}");
+            columnNames.Add($"v{i}");
         }
-        markers.Add("{{items.result}}");
+        columnNames.Add("result");
 
         for (var c = 1; c <= TotalColumns; c++)
         {
-            row.Append(CreateInlineStringCell(CellRef(c, 10), markers[c - 1] + "{{items._str}}", 5));
+            row.Append(CreateInlineStringCell(CellRef(c, DetailMarkerRowIndex), $"{{{{items.{columnNames[c - 1]}}}}}", 5));
         }
         sheetData.Append(row);
     }
@@ -338,9 +339,10 @@ public static class TemplateSeeder
         var fills = new Fills(
             new Fill(new PatternFill { PatternType = PatternValues.None }), // 0
             new Fill(new PatternFill { PatternType = PatternValues.Gray125 }), // 1 (必須保留)
-            new Fill(new PatternFill(new ForegroundColor { Rgb = "FFD9D9D9" }) { PatternType = PatternValues.Solid }) // 2 淺灰
+            new Fill(new PatternFill(new ForegroundColor { Rgb = "FFD9D9D9" }) { PatternType = PatternValues.Solid }), // 2 淺灰
+            new Fill(new PatternFill(new ForegroundColor { Rgb = "FFFFFF00" }) { PatternType = PatternValues.Solid }) // 3 黃色（子報表標題列）
         )
-        { Count = 3 };
+        { Count = 4 };
 
         var allThinBorder = new Border(
             new LeftBorder(new Color { Auto = true }) { Style = BorderStyleValues.Thin },
@@ -381,9 +383,19 @@ public static class TemplateSeeder
             {
                 FontId = 3, FillId = 0, BorderId = 1, ApplyFont = true, ApplyBorder = true, ApplyAlignment = true,
                 Alignment = new Alignment { Horizontal = HorizontalAlignmentValues.Center, Vertical = VerticalAlignmentValues.Center }
+            },
+            new CellFormat // 6 子報表 section title（黃底）
+            {
+                FontId = 2, FillId = 3, BorderId = 1, ApplyFont = true, ApplyFill = true, ApplyBorder = true, ApplyAlignment = true,
+                Alignment = new Alignment { Horizontal = HorizontalAlignmentValues.Center, Vertical = VerticalAlignmentValues.Center }
+            },
+            new CellFormat // 7 photo 佔位格
+            {
+                FontId = 0, FillId = 0, BorderId = 1, ApplyBorder = true, ApplyAlignment = true,
+                Alignment = new Alignment { Horizontal = HorizontalAlignmentValues.Center, Vertical = VerticalAlignmentValues.Center, WrapText = true }
             }
         )
-        { Count = 6 };
+        { Count = 8 };
 
         return new Stylesheet(fonts, fills, borders, cellFormats);
     }

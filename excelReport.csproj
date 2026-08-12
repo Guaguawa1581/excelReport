@@ -14,7 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="App_Data\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="App_Data\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

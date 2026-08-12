@@ -37,6 +37,7 @@ else
                         <p id="noSelectionHint" class="text-muted">請先從左方選擇一份報表。</p>
                         <div id="paramFields"></div>
                         <button type="submit" id="submitBtn" class="btn btn-primary" style="display:none">產生並下載 xlsx</button>
+                        <a id="downloadTemplateBtn" class="btn btn-outline-secondary" style="display:none" target="_blank">下載空白範本</a>
                     </form>
                 </div>
             </div>
@@ -58,6 +59,14 @@ else
                 document.getElementById('selectedCode').value = code;
                 document.getElementById('noSelectionHint').style.display = 'none';
                 document.getElementById('submitBtn').style.display = 'inline-block';
+
+                const templateBtn = document.getElementById('downloadTemplateBtn');
+                if (report.templateFile) {
+                    templateBtn.href = '@Url.Action("DownloadTemplate", "ReportConfig")?fileName=' + encodeURIComponent(report.templateFile);
+                    templateBtn.style.display = 'inline-block';
+                } else {
+                    templateBtn.style.display = 'none';
+                }
 
                 const container = document.getElementById('paramFields');
                 container.innerHTML = '';

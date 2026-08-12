@@ -1,0 +1,18 @@
+[
+  {
+    "ContainingType": "excelReport.Controllers.MockDataController",
+    "Method": "GetInspection",
+    "RelativePath": "api/mock/inspection/{docNo}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "docNo",
+        "Type": "System.String",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  }
+]

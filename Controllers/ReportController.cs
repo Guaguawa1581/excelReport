@@ -23,7 +23,7 @@ public class ReportController : Controller
     public IActionResult Index()
     {
         var items = _configStore.GetAll()
-            .Select(c => new ReportListItemViewModel { Code = c.Code, Name = c.Name, Parameters = c.Parameters })
+            .Select(c => new ReportListItemViewModel { Code = c.Code, Name = c.Name, Parameters = c.Parameters, TemplateFile = c.TemplateFile })
             .ToList();
         return View(items);
     }

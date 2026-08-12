@@ -146,22 +146,6 @@ public class ReportConfigController : Controller
             return EditWithError(configJson, originalCode, $"找不到範本檔案：{config.TemplateFile}");
         }
 
-        var missing = FindMissingMappings(scanResult, config.Mapping);
-        if (missing.Count > 0)
-        {
-            var vm = new ReportConfigEditViewModel
-            {
-                IsNew = string.IsNullOrWhiteSpace(originalCode),
-                OriginalCode = originalCode ?? "",
-                Config = config,
-                ScanResult = scanResult,
-                AvailableTemplates = GetAvailableTemplates(),
-                MissingMappings = missing,
-                ErrorMessage = "以下範本標記尚未設定對應的 JSONPath，請補齊後再儲存："
-            };
-            return View(vm);
-        }
-
         var isRename = !string.IsNullOrWhiteSpace(originalCode) && originalCode != config.Code;
         if (isRename && _configStore.Exists(config.Code))
         {
@@ -176,6 +160,25 @@ public class ReportConfigController : Controller
 
         TempData["SuccessMessage"] = "設定已儲存。";
         return RedirectToAction(nameof(Edit), new { code = config.Code });
+    }
+
+    [HttpGet]
+    public IActionResult DownloadTemplate(string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return NotFound();
+        }
+
+        var safeFileName = Path.GetFileName(fileName);
+        var path = Path.Combine(TemplatesDir, safeFileName);
+        if (!System.IO.File.Exists(path))
+        {
+            return NotFound();
+        }
+
+        var bytes = System.IO.File.ReadAllBytes(path);
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", safeFileName);
     }
 
     [HttpPost]
@@ -261,40 +264,6 @@ public class ReportConfigController : Controller
             ErrorMessage = errorMessage
         };
         return View(vm);
-    }
-
-    private List<string> FindMissingMappings(TemplateScanResult scanResult, MappingConfig mapping)
-    {
-        var missing = new List<string>();
-
-        foreach (var field in scanResult.Fields)
-        {
-            if (!mapping.Fields.TryGetValue(field, out var path) || string.IsNullOrWhiteSpace(path))
-            {
-                missing.Add($"{{{{{field}}}}}");
-            }
-        }
-
-        foreach (var collection in scanResult.Collections)
-        {
-            var mappedCollection = mapping.Collections.FirstOrDefault(c => c.Name == collection.Name);
-            foreach (var column in collection.Columns)
-            {
-                // v1~vN 由 spread 設定產生，不需個別映射 JSONPath。
-                if (mappedCollection?.Spread != null && column.StartsWith(mappedCollection.Spread.Prefix)
-                    && int.TryParse(column[mappedCollection.Spread.Prefix.Length..], out _))
-                {
-                    continue;
-                }
-
-                if (mappedCollection == null || !mappedCollection.Columns.TryGetValue(column, out var path) || string.IsNullOrWhiteSpace(path))
-                {
-                    missing.Add($"{{{{{collection.Name}.{column}}}}}");
-                }
-            }
-        }
-
-        return missing;
     }
 
     private TemplateScanResult? TryScanTemplate(string fileName)
