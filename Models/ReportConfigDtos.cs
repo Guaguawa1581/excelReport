@@ -10,11 +10,13 @@ public class UploadTemplateResult
 /// <summary>「測試連線」AJAX 請求內容。</summary>
 public class TestConnectionRequest
 {
+    public string Type { get; set; } = "url";
     public string Url { get; set; } = "";
     public string Method { get; set; } = "GET";
     public Dictionary<string, string> Headers { get; set; } = new();
     public Dictionary<string, string> Parameters { get; set; } = new();
     public int TimeoutSec { get; set; } = 30;
+    public string StaticJson { get; set; } = "";
 }
 
 /// <summary>「測試連線」AJAX 回應內容。</summary>

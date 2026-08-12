@@ -79,3 +79,4 @@ C:\working\excelReport\obj\Debug\net8.0\excelReport.pdb
 C:\working\excelReport\obj\Debug\net8.0\excelReport.genruntimeconfig.cache
 C:\working\excelReport\obj\Debug\net8.0\ref\excelReport.dll
 c:\working\excelReport\bin\Debug\net8.0\App_Data\configs\SupplierInsRecords.json
+D:\Users\Yoruru\Desktop\Coding\excelReport\obj\Debug\net8.0\excelReport.sourcelink.json

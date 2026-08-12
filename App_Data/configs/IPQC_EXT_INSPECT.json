@@ -3,57 +3,62 @@
   "name": "外部檢驗紀錄表",
   "templateFile": "sample_inspection.xlsx",
   "dataSource": {
-    "url": "https://localhost:44314/api/v2/QMS/DataCenter/Reports/SupplierInsRecords?page=1&limit=10&8.0=20260703133329170",
+    "type": "url",
+    "url": "http://localhost:5047/api/mock/inspection/{docNo}",
     "method": "GET",
-    "headers": {
-      "authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJVVea4rOippjAzIiwianRpIjoiODViYzVlNTMtMjUzNi00ZGU4LWFkODYtMmQwNTk4ZDYxOWJjIiwidXNlcklEIjoiVVUwMDMiLCJsb2dJRCI6IjEzOTIiLCJwaWQiOiIwMDAwMDAiLCJwdyI6IjFiYmQ4ODY0NjA4MjcwMTVlNWQ2MDVlZDQ0MjUyMjUxIiwibGFuZyI6InpoLXR3IiwibmJmIjoxNzg2NTA3MjkzLCJleHAiOjE3ODY1OTM2OTMsImlhdCI6MTc4NjUwNzI5MywiaXNzIjoiSW1wZWxleCJ9.NS98U7xelZbRHBWcLDFBPjj9J1Uipq0gY4U0Bslflso"
-    },
-    "timeoutSec": 30
+    "headers": {},
+    "timeoutSec": 30,
+    "staticJson": ""
   },
-  "parameters": [],
+  "parameters": [
+    {
+      "key": "docNo",
+      "label": "單據號",
+      "type": "string",
+      "required": true
+    }
+  ],
   "mapping": {
-    "root": "$.records[0]",
+    "root": "$.data",
     "fields": {
-      "docNo": "$.itemOrderNo",
-      "seqNo": "$.sid",
-      "sourceDoc": "$.sourceOrderNo",
-      "partNo": "$.productNo",
-      "qcModule": "$.moduleName",
-      "processCode": "$.processNo",
-      "qty": "$.quantity",
-      "partName": "$.productName",
+      "docNo": "$.docNo",
+      "seqNo": "$.seqNo",
+      "sourceDoc": "$.sourceDoc",
+      "partNo": "$.partNo",
+      "qcModule": "$.qcModule",
+      "processCode": "$.processCode",
+      "qty": "$.qty",
+      "partName": "$.partName",
       "processName": "$.processName",
-      "spec": "$.productSpec",
-      "inspectPoint": "$.operationAreaNo",
-      "vendor": "$.companyName",
-      "remark": "$.eqpEntityNo",
-      "date": "$.prodouctEndDateTime",
-      "inspectRemark": "$.prodouctResultNotation",
-      "inspectSpec": "$.stdName"
+      "spec": "$.spec",
+      "inspectPoint": "$.inspectPoint",
+      "vendor": "$.vendor",
+      "remark": "$.remark",
+      "date": "$.date",
+      "inspectRemark": "$.inspectRemark",
+      "inspectSpec": "$.inspectSpec"
     },
     "collections": [
       {
         "name": "items",
-        "path": "$.tasks[0].items",
+        "path": "$.details",
         "columns": {
-          "seq": "$.insPoint",
-          "itemName": "$.itemTypeName",
-          "point": "$.insPoint",
-          "std": "$.stdValue",
-          "lower": "$.lowLimit",
-          "upper": "$.upLimit",
-          "gauge": "$.toolTypeName",
-          "result": "$.itemResultName"
+          "seq": "$.seq",
+          "itemName": "$.itemName",
+          "point": "$.point",
+          "std": "$.std",
+          "lower": "$.lower",
+          "upper": "$.upper",
+          "gauge": "$.gauge",
+          "result": "$.result"
         },
         "spread": {
-          "from": "$.samples[*].measuredValue",
+          "from": "$.values",
           "prefix": "v",
           "max": 13
         }
       }
     ],
-    "images": {
-      "photo": { "path": "https://i.imgur.com/y0B0aul.jpeg", "sourceType": "url" }
-    }
+    "images": {}
   }
 }

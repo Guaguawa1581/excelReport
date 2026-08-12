@@ -68,26 +68,41 @@
     <div class="card mb-3">
         <div class="card-header">資料來源</div>
         <div class="card-body row g-3">
-            <div class="col-md-7">
-                <label class="form-label">資料來源 URL（可用 {paramKey} 佔位符，例如 {docNo}）</label>
-                <input type="text" class="form-control" id="f-url" placeholder="http://localhost:5000/api/mock/inspection/{docNo}" />
-            </div>
-            <div class="col-md-2">
-                <label class="form-label">Method</label>
-                <select class="form-select" id="f-method">
-                    <option>GET</option>
-                    <option>POST</option>
-                    <option>PUT</option>
+            <div class="col-md-4">
+                <label class="form-label">資料來源類型</label>
+                <select class="form-select" id="f-sourceType">
+                    <option value="url">API URL</option>
+                    <option value="paste">貼上 JSON 物件（測試用）</option>
                 </select>
             </div>
-            <div class="col-md-3">
-                <label class="form-label">逾時秒數</label>
-                <input type="number" class="form-control" id="f-timeout" value="30" min="1" />
+            <div id="sourceUrlFields" class="col-12 row g-3">
+                <div class="col-md-7">
+                    <label class="form-label">資料來源 URL（可用 {paramKey} 佔位符，例如 {docNo}）</label>
+                    <input type="text" class="form-control" id="f-url" placeholder="http://localhost:5000/api/mock/inspection/{docNo}" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Method</label>
+                    <select class="form-select" id="f-method">
+                        <option>GET</option>
+                        <option>POST</option>
+                        <option>PUT</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">逾時秒數</label>
+                    <input type="number" class="form-control" id="f-timeout" value="30" min="1" />
+                </div>
+                <div class="col-12">
+                    <label class="form-label">自訂 Headers</label>
+                    <div id="headerRows"></div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="addHeaderBtn">+ 新增 Header</button>
+                </div>
             </div>
-            <div class="col-12">
-                <label class="form-label">自訂 Headers</label>
-                <div id="headerRows"></div>
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="addHeaderBtn">+ 新增 Header</button>
+            <div id="sourcePasteFields" class="col-12" style="display:none">
+                <label class="form-label">貼上 JSON 物件</label>
+                <textarea class="form-control" id="f-staticJson" rows="10" style="font-family:monospace" placeholder='{&#10;  "data": { }&#10;}'></textarea>
+                <div class="form-text">此模式不會呼叫任何 API，直接使用這裡貼上的內容做為資料來源，僅供測試映射設定用。</div>
+                <div id="staticJsonError" class="text-danger small mt-1"></div>
             </div>
         </div>
     </div>
@@ -164,6 +179,14 @@
             document.getElementById('headerRows').appendChild(row);
         }
         document.getElementById('addHeaderBtn').addEventListener('click', () => addHeaderRow());
+
+        // ---------- Data source type toggle ----------
+        function updateSourceTypeVisibility() {
+            const isPaste = document.getElementById('f-sourceType').value === 'paste';
+            document.getElementById('sourceUrlFields').style.display = isPaste ? 'none' : '';
+            document.getElementById('sourcePasteFields').style.display = isPaste ? '' : 'none';
+        }
+        document.getElementById('f-sourceType').addEventListener('change', updateSourceTypeVisibility);
 
         // ---------- Parameters ----------
         function addParamRow(key = '', label = '', type = 'string', required = true) {
@@ -416,11 +439,13 @@
             document.querySelectorAll('.test-param-value').forEach(i => parameters[i.dataset.key] = i.value);
 
             const payload = {
+                type: document.getElementById('f-sourceType').value,
                 url: document.getElementById('f-url').value,
                 method: document.getElementById('f-method').value,
                 headers: headers,
                 parameters: parameters,
-                timeoutSec: parseInt(document.getElementById('f-timeout').value, 10) || 30
+                timeoutSec: parseInt(document.getElementById('f-timeout').value, 10) || 30,
+                staticJson: document.getElementById('f-staticJson').value
             };
 
             const resultEl = document.getElementById('testConnectionResult');
@@ -483,15 +508,30 @@
                 images[i.dataset.field] = { path: i.value.trim(), sourceType: typeSelect ? typeSelect.value : 'auto' };
             });
 
+            const sourceType = document.getElementById('f-sourceType').value;
+            const staticJson = document.getElementById('f-staticJson').value.trim();
+            document.getElementById('staticJsonError').textContent = '';
+            if (sourceType === 'paste') {
+                try {
+                    if (staticJson) JSON.parse(staticJson);
+                } catch (e) {
+                    ev.preventDefault();
+                    document.getElementById('staticJsonError').textContent = '貼上的內容不是有效的 JSON：' + e.message;
+                    return;
+                }
+            }
+
             const config = {
                 code: document.getElementById('f-code').value.trim(),
                 name: document.getElementById('f-name').value.trim(),
                 templateFile: window.__selectedTemplateFile || initialConfig.templateFile || '',
                 dataSource: {
+                    type: sourceType,
                     url: document.getElementById('f-url').value.trim(),
                     method: document.getElementById('f-method').value,
                     headers: headers,
-                    timeoutSec: parseInt(document.getElementById('f-timeout').value, 10) || 30
+                    timeoutSec: parseInt(document.getElementById('f-timeout').value, 10) || 30,
+                    staticJson: staticJson
                 },
                 parameters: getParameters(),
                 mapping: {
@@ -515,9 +555,12 @@
         (function init() {
             document.getElementById('f-code').value = initialConfig.code || '';
             document.getElementById('f-name').value = initialConfig.name || '';
+            document.getElementById('f-sourceType').value = (initialConfig.dataSource && initialConfig.dataSource.type) || 'url';
             document.getElementById('f-url').value = (initialConfig.dataSource && initialConfig.dataSource.url) || '';
             document.getElementById('f-method').value = (initialConfig.dataSource && initialConfig.dataSource.method) || 'GET';
             document.getElementById('f-timeout').value = (initialConfig.dataSource && initialConfig.dataSource.timeoutSec) || 30;
+            document.getElementById('f-staticJson').value = (initialConfig.dataSource && initialConfig.dataSource.staticJson) || '';
+            updateSourceTypeVisibility();
             document.getElementById('f-root').value = (initialConfig.mapping && initialConfig.mapping.root) || '$.data';
 
             if (initialConfig.templateFile) {

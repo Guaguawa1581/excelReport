@@ -13,7 +13,21 @@ public class DataSourceClient : IDataSourceClient
         _httpClientFactory = httpClientFactory;
     }
 
-    public async Task<string> FetchAsync(DataSourceConfig dataSource, IDictionary<string, string> parameters, CancellationToken cancellationToken = default)
+    public Task<string> FetchAsync(DataSourceConfig dataSource, IDictionary<string, string> parameters, CancellationToken cancellationToken = default)
+    {
+        if (dataSource.Type == "paste")
+        {
+            if (string.IsNullOrWhiteSpace(dataSource.StaticJson))
+            {
+                throw new ReportGenerationException("貼上的 JSON 物件未設定。");
+            }
+            return Task.FromResult(dataSource.StaticJson);
+        }
+
+        return FetchFromUrlAsync(dataSource, parameters, cancellationToken);
+    }
+
+    private async Task<string> FetchFromUrlAsync(DataSourceConfig dataSource, IDictionary<string, string> parameters, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(dataSource.Url))
         {

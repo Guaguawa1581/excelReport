@@ -11,13 +11,18 @@ public class ReportConfig
     public MappingConfig Mapping { get; set; } = new();
 }
 
-/// <summary>資料來源 API 設定。</summary>
+/// <summary>
+/// 資料來源設定。Type=url（預設）時代打外部 API；Type=paste 時直接使用 StaticJson
+/// 這段貼上的固定 JSON 內容，不會發送任何 HTTP 請求，方便在還沒有真實 API 時先行測試映射設定。
+/// </summary>
 public class DataSourceConfig
 {
+    public string Type { get; set; } = "url";
     public string Url { get; set; } = "";
     public string Method { get; set; } = "GET";
     public Dictionary<string, string> Headers { get; set; } = new();
     public int TimeoutSec { get; set; } = 30;
+    public string StaticJson { get; set; } = "";
 }
 
 /// <summary>報表輸入參數定義，用於 /Report/Index 動態產生輸入欄位。</summary>

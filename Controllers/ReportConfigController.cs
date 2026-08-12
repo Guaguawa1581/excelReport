@@ -225,10 +225,12 @@ public class ReportConfigController : Controller
     {
         var dataSource = new DataSourceConfig
         {
+            Type = request.Type,
             Url = request.Url,
             Method = request.Method,
             Headers = request.Headers,
-            TimeoutSec = request.TimeoutSec > 0 ? request.TimeoutSec : 30
+            TimeoutSec = request.TimeoutSec > 0 ? request.TimeoutSec : 30,
+            StaticJson = request.StaticJson
         };
 
         try
