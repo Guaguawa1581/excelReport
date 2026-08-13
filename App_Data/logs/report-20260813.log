@@ -1,3 +1,13 @@
 {"time":"2026-08-13 01:17:41","code":"SupplierIns","parameters":{},"elapsedMs":183,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
 {"time":"2026-08-13 01:17:49","code":"SupplierIns","parameters":{},"elapsedMs":13,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
 {"time":"2026-08-13 01:18:43","code":"SupplierIns","parameters":{},"elapsedMs":13,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-13 09:27:44","code":"SupplierIns","parameters":{},"elapsedMs":625,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-13 10:11:38","code":"SupplierIns","parameters":{},"elapsedMs":71,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-13 10:11:47","code":"SupplierIns","parameters":{},"elapsedMs":12,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-13 10:11:55","code":"IPQC_EXT_INSPECT","parameters":{"docNo":"ˇˋ242"},"elapsedMs":162,"success":false,"error":"找不到範本檔案：sample_inspection.xlsx"}
+{"time":"2026-08-13 10:12:08","code":"SupplierIns","parameters":{},"elapsedMs":12,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-13 10:23:43","code":"SupplierIns","parameters":{},"elapsedMs":4958,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-13 10:26:15","code":"SupplierIns","parameters":{},"elapsedMs":138929,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-13 10:30:28","code":"SupplierIns","parameters":{},"elapsedMs":2814,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-13 10:30:52","code":"SupplierIns","parameters":{},"elapsedMs":8444,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-13 11:28:29","code":"SupplierIns","parameters":{},"elapsedMs":3404487,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}

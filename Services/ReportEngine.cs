@@ -51,6 +51,7 @@ public class ReportEngine : IReportEngine
 
             ValidateParameters(config, parameters);
 
+            // 取得要填入的資料
             var json = await _dataSourceClient.FetchAsync(config.DataSource, parameters, cancellationToken);
 
             JObject root;
@@ -74,6 +75,7 @@ public class ReportEngine : IReportEngine
             }
 
             var templateBytes = await LoadTemplateBytesAsync(config);
+            // 讀取excel sheet
             var scanResult = _scanner.Scan(templateBytes);
 
             var rootToken = ResolveRoot(root, config.Mapping.Root);
@@ -151,8 +153,8 @@ public class ReportEngine : IReportEngine
 
     /// <summary>
     /// 以範本實際掃到的標記（scanResult）為準來建立資料字典，而不是只看 mapping 設定裡有寫什麼。
-    /// mapping 只提供「有填寫的話要用哪個 JSONPath」；範本裡任何標記，無論設定裡有沒有寫、寫的是
-    /// 空字串還是完全沒有這個 key，都會得到一個對應的資料字典 key（找不到節點就給空字串）。
+    /// mapping 只提供「有填寫的話要用哪個 JSONPath」
+    /// 所有標記都會得到一個對應的資料字典 key（找不到節點就給空字串）。
     /// </summary>
     private static Dictionary<string, object> BuildDataDictionary(MappingConfig mapping, TemplateScanResult scanResult, JToken rootToken)
     {

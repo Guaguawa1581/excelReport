@@ -1,0 +1,64 @@
+{
+  "code": "IPQC_EXT_INSPECT",
+  "name": "外部檢驗紀錄表",
+  "templateFile": "sample_inspection.xlsx",
+  "dataSource": {
+    "type": "url",
+    "url": "http://localhost:5047/api/mock/inspection/{docNo}",
+    "method": "GET",
+    "headers": {},
+    "timeoutSec": 30,
+    "staticJson": ""
+  },
+  "parameters": [
+    {
+      "key": "docNo",
+      "label": "單據號",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "mapping": {
+    "root": "$.data",
+    "fields": {
+      "docNo": "$.docNo",
+      "seqNo": "$.seqNo",
+      "sourceDoc": "$.sourceDoc",
+      "partNo": "$.partNo",
+      "qcModule": "$.qcModule",
+      "processCode": "$.processCode",
+      "qty": "$.qty",
+      "partName": "$.partName",
+      "processName": "$.processName",
+      "spec": "$.spec",
+      "inspectPoint": "$.inspectPoint",
+      "vendor": "$.vendor",
+      "remark": "$.remark",
+      "date": "$.date",
+      "inspectRemark": "$.inspectRemark",
+      "inspectSpec": "$.inspectSpec"
+    },
+    "collections": [
+      {
+        "name": "items",
+        "path": "$.details",
+        "columns": {
+          "seq": "$.seq",
+          "itemName": "$.itemName",
+          "point": "$.point",
+          "std": "$.std",
+          "lower": "$.lower",
+          "upper": "$.upper",
+          "gauge": "$.gauge",
+          "result": "$.result"
+        },
+        "spread": {
+          "from": "$.values",
+          "prefix": "v",
+          "max": 13
+        }
+      }
+    ],
+    "images": {}
+  }
+}

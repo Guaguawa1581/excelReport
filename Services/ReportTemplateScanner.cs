@@ -47,7 +47,7 @@ public class ReportTemplateScanner : IReportTemplateScanner
         {
             var text = GetCellText(cell, sharedStrings);
             if (string.IsNullOrEmpty(text)) continue;
-
+            // 找出有"{{ }}"佔位符
             foreach (Match match in MarkerRegex.Matches(text))
             {
                 var marker = match.Groups[1].Value;
@@ -70,7 +70,7 @@ public class ReportTemplateScanner : IReportTemplateScanner
                     if (!columns.Contains(columnName)) columns.Add(columnName);
                 }
             }
-
+            // 找出有"[[ ]]"佔位符
             foreach (Match match in ImageMarkerRegex.Matches(text))
             {
                 var marker = match.Groups[1].Value;
