@@ -81,3 +81,6 @@ C:\working\excelReport\obj\Debug\net8.0\ref\excelReport.dll
 D:\Users\Yoruru\Desktop\Coding\excelReport\obj\Debug\net8.0\excelReport.sourcelink.json
 c:\working\excelReport\bin\Debug\net8.0\App_Data\configs\SupplierIns.json
 C:\working\excelReport\obj\Debug\net8.0\staticwebassets.upToDateCheck.txt
+D:\Users\Yoruru\Desktop\Coding\excelReport\bin\Debug\net8.0\App_Data\configs\IPQC_EXT_INSPECT.json
+D:\Users\Yoruru\Desktop\Coding\excelReport\bin\Debug\net8.0\App_Data\configs\SupplierIns.json
+D:\Users\Yoruru\Desktop\Coding\excelReport\obj\Debug\net8.0\staticwebassets.upToDateCheck.txt

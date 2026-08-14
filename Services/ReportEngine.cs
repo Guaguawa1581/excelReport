@@ -85,7 +85,14 @@ public class ReportEngine : IReportEngine
             var data = BuildDataDictionary(config.Mapping, scanResult, rootToken);
             var imageValues = ResolveImages(config.Mapping, rootToken);
 
-            var fileBytes = await RenderTemplateAsync(templateBytes, data, cancellationToken);
+            // MiniExcel 套版是對整份活頁簿下手，範本若還有其他分頁（例如共用同一份檔案的其他報表、
+            // 舊草稿），直接套版會因為那些分頁殘留的標記找不到資料而出錯，而且會把它們也一併填了。
+            // 這裡先裁出只剩目標工作表的副本餵給 MiniExcel，套版完再把結果貼回完整範本裡，讓其他
+            // 分頁完全維持原樣、不受套版影響。
+            var isolatedTemplateBytes = _scanner.IsolateTargetSheet(templateBytes);
+            var renderedTargetSheet = await RenderTemplateAsync(isolatedTemplateBytes, data, cancellationToken);
+            var fileBytes = _scanner.MergeRenderedTargetSheet(templateBytes, renderedTargetSheet);
+
             if (config.Mapping.Images.Count > 0)
             {
                 fileBytes = await EmbedImagesAsync(fileBytes, config.Mapping.Images, imageValues, cancellationToken);
@@ -284,52 +291,51 @@ public class ReportEngine : IReportEngine
             if (workbookPart == null) return fileBytes;
 
             var sharedStrings = workbookPart.GetPartsOfType<SharedStringTablePart>().FirstOrDefault();
+            // 只處理目標工作表，其他分頁維持原樣、不掃描也不清除裡面的 [[]] 標記文字
+            var worksheetPart = _scanner.GetTargetWorksheetPart(workbookPart);
 
-            foreach (var worksheetPart in workbookPart.WorksheetParts)
+            var worksheetChanged = false;
+            var cells = worksheetPart.Worksheet.Descendants<Cell>().ToList();
+
+            foreach (var cell in cells)
             {
-                var worksheetChanged = false;
-                var cells = worksheetPart.Worksheet.Descendants<Cell>().ToList();
+                var text = GetCellText(cell, sharedStrings);
+                if (string.IsNullOrEmpty(text)) continue;
 
-                foreach (var cell in cells)
+                var match = ImageMarkerRegex.Match(text);
+                if (!match.Success) continue;
+
+                var fieldName = match.Groups[1].Value;
+                ClearCellText(cell);
+                worksheetChanged = true;
+
+                if (!imageValues.TryGetValue(fieldName, out var sourceValue) || cell.CellReference?.Value == null)
                 {
-                    var text = GetCellText(cell, sharedStrings);
-                    if (string.IsNullOrEmpty(text)) continue;
-
-                    var match = ImageMarkerRegex.Match(text);
-                    if (!match.Success) continue;
-
-                    var fieldName = match.Groups[1].Value;
-                    ClearCellText(cell);
-                    worksheetChanged = true;
-
-                    if (!imageValues.TryGetValue(fieldName, out var sourceValue) || cell.CellReference?.Value == null)
-                    {
-                        continue;
-                    }
-
-                    var sourceType = imageMappings.TryGetValue(fieldName, out var imageMapping) ? imageMapping.SourceType : "auto";
-
-                    byte[]? imageBytes;
-                    try
-                    {
-                        imageBytes = await ResolveImageBytesAsync(sourceValue, sourceType, cancellationToken);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "圖片欄位 {Field} 下載/解碼失敗，略過嵌入", fieldName);
-                        imageBytes = null;
-                    }
-
-                    if (imageBytes is { Length: > 0 })
-                    {
-                        InsertPicture(worksheetPart, cell.CellReference.Value, imageBytes);
-                    }
+                    continue;
                 }
 
-                if (worksheetChanged)
+                var sourceType = imageMappings.TryGetValue(fieldName, out var imageMapping) ? imageMapping.SourceType : "auto";
+
+                byte[]? imageBytes;
+                try
                 {
-                    worksheetPart.Worksheet.Save();
+                    imageBytes = await ResolveImageBytesAsync(sourceValue, sourceType, cancellationToken);
                 }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "圖片欄位 {Field} 下載/解碼失敗，略過嵌入", fieldName);
+                    imageBytes = null;
+                }
+
+                if (imageBytes is { Length: > 0 })
+                {
+                    InsertPicture(worksheetPart, cell.CellReference.Value, imageBytes);
+                }
+            }
+
+            if (worksheetChanged)
+            {
+                worksheetPart.Worksheet.Save();
             }
         }
 

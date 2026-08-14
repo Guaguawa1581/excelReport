@@ -11,3 +11,4 @@
 {"time":"2026-08-13 10:30:28","code":"SupplierIns","parameters":{},"elapsedMs":2814,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
 {"time":"2026-08-13 10:30:52","code":"SupplierIns","parameters":{},"elapsedMs":8444,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
 {"time":"2026-08-13 11:28:29","code":"SupplierIns","parameters":{},"elapsedMs":3404487,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
+{"time":"2026-08-13 21:16:11","code":"SupplierIns","parameters":{},"elapsedMs":57145,"success":false,"error":"套版產生 xlsx 時發生錯誤：Object reference not set to an instance of an object."}
