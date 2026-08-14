@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
@@ -40,44 +41,49 @@ public class ReportTemplateScanner : IReportTemplateScanner
             ?? throw new ReportGenerationException("範本檔案格式不正確，找不到活頁簿內容。");
 
         var sharedStrings = workbookPart.GetPartsOfType<SharedStringTablePart>().FirstOrDefault();
-        var worksheetPart = GetTargetWorksheetPart(workbookPart);
+        // 取特定sheet
+        //var worksheetPart = GetTargetWorksheetPart(workbookPart);
 
-        var cells = worksheetPart.Worksheet.Descendants<Cell>();
-        foreach (var cell in cells)
+        var worksheetParts = workbookPart.WorksheetParts;
+        foreach (var worksheetPart in worksheetParts)
         {
-            var text = GetCellText(cell, sharedStrings);
-            if (string.IsNullOrEmpty(text)) continue;
-            // 找出有"{{ }}"佔位符
-            foreach (Match match in MarkerRegex.Matches(text))
+
+            var cells = worksheetPart.Worksheet.Descendants<Cell>();
+            foreach (var cell in cells)
             {
-                var marker = match.Groups[1].Value;
-                var dotIndex = marker.IndexOf('.');
-                if (dotIndex < 0)
+                var text = GetCellText(cell, sharedStrings);
+                if (string.IsNullOrEmpty(text)) continue;
+                // 找出有"{{ }}"佔位符
+                foreach (Match match in MarkerRegex.Matches(text))
                 {
-                    if (marker == ReservedColumnName) continue;
-                    if (!fields.Contains(marker)) fields.Add(marker);
-                }
-                else
-                {
-                    var collectionName = marker[..dotIndex];
-                    var columnName = marker[(dotIndex + 1)..];
-                    if (columnName == ReservedColumnName) continue;
-                    if (!collections.TryGetValue(collectionName, out var columns))
+                    var marker = match.Groups[1].Value;
+                    var dotIndex = marker.IndexOf('.');
+                    if (dotIndex < 0)
                     {
-                        columns = new List<string>();
-                        collections[collectionName] = columns;
+                        if (marker == ReservedColumnName) continue;
+                        if (!fields.Contains(marker)) fields.Add(marker);
                     }
-                    if (!columns.Contains(columnName)) columns.Add(columnName);
+                    else
+                    {
+                        var collectionName = marker[..dotIndex];
+                        var columnName = marker[(dotIndex + 1)..];
+                        if (columnName == ReservedColumnName) continue;
+                        if (!collections.TryGetValue(collectionName, out var columns))
+                        {
+                            columns = new List<string>();
+                            collections[collectionName] = columns;
+                        }
+                        if (!columns.Contains(columnName)) columns.Add(columnName);
+                    }
                 }
-            }
-            // 找出有"[[ ]]"佔位符
-            foreach (Match match in ImageMarkerRegex.Matches(text))
-            {
-                var marker = match.Groups[1].Value;
-                if (!imageFields.Contains(marker)) imageFields.Add(marker);
+                // 找出有"[[ ]]"佔位符
+                foreach (Match match in ImageMarkerRegex.Matches(text))
+                {
+                    var marker = match.Groups[1].Value;
+                    if (!imageFields.Contains(marker)) imageFields.Add(marker);
+                }
             }
         }
-
         return new TemplateScanResult
         {
             Fields = fields,
@@ -86,6 +92,23 @@ public class ReportTemplateScanner : IReportTemplateScanner
                 .Select(kv => new CollectionScanResult { Name = kv.Key, Columns = kv.Value })
                 .ToList()
         };
+    }
+
+    /// <summary>範本是否為「嚴格開放的 XML 試算表」(Strict Open XML Spreadsheet) 格式。
+    /// MiniExcel 套版引擎不支援這個格式，即使掃描能成功，套版時也一定會丟出 NullReferenceException。
+    /// 判斷依據：xl/workbook.xml 根節點的 conformance="strict" 屬性（ECMA-376 定義的格式旗標，
+    /// 一般 Excel 活頁簿不會有這個屬性）。</summary>
+    public bool IsStrictOpenXml(byte[] templateBytes)
+    {
+        using var stream = new MemoryStream(templateBytes);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
+        var workbookEntry = archive.GetEntry("xl/workbook.xml");
+        if (workbookEntry == null) return false;
+
+        using var entryStream = workbookEntry.Open();
+        using var reader = new StreamReader(entryStream, System.Text.Encoding.UTF8);
+        var content = reader.ReadToEnd();
+        return content.Contains("conformance=\"strict\"", StringComparison.Ordinal);
     }
 
     /// <summary>依 appsettings 的 TemplateScan:Sheet 決定要掃描哪個工作表：

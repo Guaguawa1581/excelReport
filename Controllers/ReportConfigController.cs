@@ -205,6 +205,15 @@ public class ReportConfigController : Controller
             bytes = ms.ToArray();
         }
 
+        if (_scanner.IsStrictOpenXml(bytes))
+        {
+            return BadRequest(new
+            {
+                message = "此範本是用「嚴格開放的 XML 試算表 (Strict Open XML Spreadsheet)」格式儲存，套版引擎不支援此格式。" +
+                    "請在 Excel 開啟後用「另存新檔」，檔案類型選擇一般的「Excel 活頁簿 (*.xlsx)」（不是 Strict Open XML Spreadsheet）再重新上傳。"
+            });
+        }
+
         TemplateScanResult scanResult;
         try
         {

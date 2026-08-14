@@ -1,7 +1,7 @@
 {
   "code": "SupplierIns",
   "name": "外檢報表",
-  "templateFile": "檢驗template.xlsx",
+  "templateFile": "檢驗template_OnlyOne.xlsx",
   "dataSource": {
     "type": "paste",
     "url": "",
@@ -26,11 +26,6 @@
         }
       }
     ],
-    "images": {
-      "logoPhoto": {
-        "path": "https://i.imgur.com/y0B0aul.jpeg",
-        "sourceType": "auto"
-      }
-    }
+    "images": {}
   }
 }

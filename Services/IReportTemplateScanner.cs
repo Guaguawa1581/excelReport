@@ -6,4 +6,8 @@ namespace excelReport.Services;
 public interface IReportTemplateScanner
 {
     TemplateScanResult Scan(byte[] templateBytes);
+
+    /// <summary>範本是否為「嚴格開放的 XML 試算表」(Strict Open XML Spreadsheet) 格式。
+    /// MiniExcel 套版引擎不支援這個格式，即使掃描能成功，套版時也一定會丟出 NullReferenceException。</summary>
+    bool IsStrictOpenXml(byte[] templateBytes);
 }
