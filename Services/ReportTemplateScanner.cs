@@ -42,48 +42,48 @@ public class ReportTemplateScanner : IReportTemplateScanner
 
         var sharedStrings = workbookPart.GetPartsOfType<SharedStringTablePart>().FirstOrDefault();
         // 取特定sheet
-        //var worksheetPart = GetTargetWorksheetPart(workbookPart);
+        var worksheetPart = GetTargetWorksheetPart(workbookPart);
 
         var worksheetParts = workbookPart.WorksheetParts;
-        foreach (var worksheetPart in worksheetParts)
-        {
+        // foreach (var worksheetPart in worksheetParts)
+        // {
 
-            var cells = worksheetPart.Worksheet.Descendants<Cell>();
-            foreach (var cell in cells)
+        var cells = worksheetPart.Worksheet.Descendants<Cell>();
+        foreach (var cell in cells)
+        {
+            var text = GetCellText(cell, sharedStrings);
+            if (string.IsNullOrEmpty(text)) continue;
+            // 找出有"{{ }}"佔位符
+            foreach (Match match in MarkerRegex.Matches(text))
             {
-                var text = GetCellText(cell, sharedStrings);
-                if (string.IsNullOrEmpty(text)) continue;
-                // 找出有"{{ }}"佔位符
-                foreach (Match match in MarkerRegex.Matches(text))
+                var marker = match.Groups[1].Value;
+                var dotIndex = marker.IndexOf('.');
+                if (dotIndex < 0)
                 {
-                    var marker = match.Groups[1].Value;
-                    var dotIndex = marker.IndexOf('.');
-                    if (dotIndex < 0)
-                    {
-                        if (marker == ReservedColumnName) continue;
-                        if (!fields.Contains(marker)) fields.Add(marker);
-                    }
-                    else
-                    {
-                        var collectionName = marker[..dotIndex];
-                        var columnName = marker[(dotIndex + 1)..];
-                        if (columnName == ReservedColumnName) continue;
-                        if (!collections.TryGetValue(collectionName, out var columns))
-                        {
-                            columns = new List<string>();
-                            collections[collectionName] = columns;
-                        }
-                        if (!columns.Contains(columnName)) columns.Add(columnName);
-                    }
+                    if (marker == ReservedColumnName) continue;
+                    if (!fields.Contains(marker)) fields.Add(marker);
                 }
-                // 找出有"[[ ]]"佔位符
-                foreach (Match match in ImageMarkerRegex.Matches(text))
+                else
                 {
-                    var marker = match.Groups[1].Value;
-                    if (!imageFields.Contains(marker)) imageFields.Add(marker);
+                    var collectionName = marker[..dotIndex];
+                    var columnName = marker[(dotIndex + 1)..];
+                    if (columnName == ReservedColumnName) continue;
+                    if (!collections.TryGetValue(collectionName, out var columns))
+                    {
+                        columns = new List<string>();
+                        collections[collectionName] = columns;
+                    }
+                    if (!columns.Contains(columnName)) columns.Add(columnName);
                 }
             }
+            // 找出有"[[ ]]"佔位符
+            foreach (Match match in ImageMarkerRegex.Matches(text))
+            {
+                var marker = match.Groups[1].Value;
+                if (!imageFields.Contains(marker)) imageFields.Add(marker);
+            }
         }
+        // }
         return new TemplateScanResult
         {
             Fields = fields,

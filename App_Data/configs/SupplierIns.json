@@ -1,7 +1,7 @@
 {
   "code": "SupplierIns",
   "name": "外檢報表",
-  "templateFile": "檢驗template_OnlyOne.xlsx",
+  "templateFile": "檢驗template.xlsx",
   "dataSource": {
     "type": "paste",
     "url": "",
@@ -17,10 +17,10 @@
     "collections": [
       {
         "name": "items",
-        "path": "$.tasks[0].items",
+        "path": "",
         "columns": {},
         "spread": {
-          "from": "$.samples[0].measuredValue",
+          "from": "$.values",
           "prefix": "v",
           "max": 13
         }
