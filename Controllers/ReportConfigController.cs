@@ -73,7 +73,7 @@ public class ReportConfigController : Controller
     }
 
     [HttpGet]
-    public IActionResult Edit(string? code, string? template)
+    public IActionResult Edit(string? code, string? template, string? sheet)
     {
         var vm = new ReportConfigEditViewModel
         {
@@ -101,16 +101,24 @@ public class ReportConfigController : Controller
             vm.Config = existing;
         }
 
-        // 允許透過 template 參數切換要掃描/預覽的範本，而不影響尚未儲存的設定。
+        // 允許透過 template/sheet 參數切換要掃描/預覽的範本或工作表，而不影響尚未儲存的設定。
         if (!string.IsNullOrWhiteSpace(template))
         {
             vm.Config.TemplateFile = template;
         }
+        if (sheet != null)
+        {
+            vm.Config.TemplateSheet = sheet;
+        }
 
         if (!string.IsNullOrWhiteSpace(vm.Config.TemplateFile))
         {
-            vm.ScanResult = TryScanTemplate(vm.Config.TemplateFile);
+            vm.ScanResult = TryScanTemplate(vm.Config.TemplateFile, vm.Config.TemplateSheet);
+            vm.SheetNames = TryGetSheetNames(vm.Config.TemplateFile) ?? new List<string>();
         }
+
+        vm.SubReportScans = BuildSubReportScans(vm.Config.SubReports);
+        vm.SubReportSheetNames = BuildSubReportSheetNames(vm.Config.SubReports);
 
         return View(vm);
     }
@@ -140,10 +148,22 @@ public class ReportConfigController : Controller
             return EditWithError(configJson, originalCode, "請先上傳或選擇一份範本 xlsx。");
         }
 
-        var scanResult = TryScanTemplate(config.TemplateFile);
+        var scanResult = TryScanTemplate(config.TemplateFile, config.TemplateSheet);
         if (scanResult == null)
         {
             return EditWithError(configJson, originalCode, $"找不到範本檔案：{config.TemplateFile}");
+        }
+
+        foreach (var subReport in config.SubReports)
+        {
+            if (string.IsNullOrWhiteSpace(subReport.TemplateFile))
+            {
+                return EditWithError(configJson, originalCode, "每個子報表都要先上傳或選擇一份範本 xlsx。");
+            }
+            if (TryScanTemplate(subReport.TemplateFile, subReport.TemplateSheet) == null)
+            {
+                return EditWithError(configJson, originalCode, $"找不到子報表範本檔案：{subReport.TemplateFile}");
+            }
         }
 
         var isRename = !string.IsNullOrWhiteSpace(originalCode) && originalCode != config.Code;
@@ -182,7 +202,7 @@ public class ReportConfigController : Controller
     }
 
     [HttpPost]
-    public async Task<IActionResult> UploadTemplate(IFormFile file)
+    public async Task<IActionResult> UploadTemplate(IFormFile file, string? sheet)
     {
         if (file == null || file.Length == 0)
         {
@@ -215,9 +235,11 @@ public class ReportConfigController : Controller
         }
 
         TemplateScanResult scanResult;
+        List<string> sheetNames;
         try
         {
-            scanResult = _scanner.Scan(bytes);
+            scanResult = _scanner.Scan(bytes, sheet);
+            sheetNames = _scanner.GetSheetNames(bytes);
         }
         catch (ReportGenerationException ex)
         {
@@ -226,7 +248,21 @@ public class ReportConfigController : Controller
 
         await System.IO.File.WriteAllBytesAsync(path, bytes);
 
-        return Ok(new UploadTemplateResult { FileName = safeFileName, ScanResult = scanResult });
+        return Ok(new UploadTemplateResult { FileName = safeFileName, ScanResult = scanResult, SheetNames = sheetNames });
+    }
+
+    /// <summary>掃描一個已存在於 App_Data/templates 的範本檔，不寫入任何東西。子報表卡片選擇
+    /// 「既有範本」、或換工作表時用 AJAX 呼叫這支，取得掃描結果來畫欄位映射 UI，不用整頁重新載入。</summary>
+    [HttpGet]
+    public IActionResult ScanTemplate(string fileName, string? sheet)
+    {
+        var scanResult = TryScanTemplate(fileName, sheet);
+        if (scanResult == null)
+        {
+            return NotFound(new { message = $"找不到範本檔案：{fileName}" });
+        }
+        var sheetNames = TryGetSheetNames(fileName) ?? new List<string>();
+        return Ok(new UploadTemplateResult { FileName = fileName, ScanResult = scanResult, SheetNames = sheetNames });
     }
 
     [HttpPost]
@@ -270,14 +306,47 @@ public class ReportConfigController : Controller
             IsNew = string.IsNullOrWhiteSpace(originalCode),
             OriginalCode = originalCode ?? "",
             Config = config,
-            ScanResult = string.IsNullOrWhiteSpace(config.TemplateFile) ? null : TryScanTemplate(config.TemplateFile),
+            ScanResult = string.IsNullOrWhiteSpace(config.TemplateFile) ? null : TryScanTemplate(config.TemplateFile, config.TemplateSheet),
+            SheetNames = string.IsNullOrWhiteSpace(config.TemplateFile) ? new List<string>() : (TryGetSheetNames(config.TemplateFile) ?? new List<string>()),
+            SubReportScans = BuildSubReportScans(config.SubReports),
+            SubReportSheetNames = BuildSubReportSheetNames(config.SubReports),
             AvailableTemplates = GetAvailableTemplates(),
             ErrorMessage = errorMessage
         };
         return View(vm);
     }
 
-    private TemplateScanResult? TryScanTemplate(string fileName)
+    private Dictionary<string, TemplateScanResult> BuildSubReportScans(List<SubReportConfig> subReports)
+    {
+        var result = new Dictionary<string, TemplateScanResult>();
+        foreach (var subReport in subReports)
+        {
+            if (string.IsNullOrWhiteSpace(subReport.TemplateFile) || result.ContainsKey(subReport.TemplateFile)) continue;
+            var scan = TryScanTemplate(subReport.TemplateFile, subReport.TemplateSheet);
+            if (scan != null)
+            {
+                result[subReport.TemplateFile] = scan;
+            }
+        }
+        return result;
+    }
+
+    private Dictionary<string, List<string>> BuildSubReportSheetNames(List<SubReportConfig> subReports)
+    {
+        var result = new Dictionary<string, List<string>>();
+        foreach (var subReport in subReports)
+        {
+            if (string.IsNullOrWhiteSpace(subReport.TemplateFile) || result.ContainsKey(subReport.TemplateFile)) continue;
+            var names = TryGetSheetNames(subReport.TemplateFile);
+            if (names != null)
+            {
+                result[subReport.TemplateFile] = names;
+            }
+        }
+        return result;
+    }
+
+    private TemplateScanResult? TryScanTemplate(string fileName, string? sheet = null)
     {
         if (string.IsNullOrWhiteSpace(fileName)) return null;
         var path = Path.Combine(TemplatesDir, fileName);
@@ -285,11 +354,28 @@ public class ReportConfigController : Controller
 
         try
         {
-            return _scanner.Scan(System.IO.File.ReadAllBytes(path));
+            return _scanner.Scan(System.IO.File.ReadAllBytes(path), sheet);
         }
         catch (ReportGenerationException ex)
         {
             _logger.LogWarning("掃描範本 {File} 失敗：{Message}", fileName, ex.Message);
+            return null;
+        }
+    }
+
+    private List<string>? TryGetSheetNames(string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName)) return null;
+        var path = Path.Combine(TemplatesDir, fileName);
+        if (!System.IO.File.Exists(path)) return null;
+
+        try
+        {
+            return _scanner.GetSheetNames(System.IO.File.ReadAllBytes(path));
+        }
+        catch (ReportGenerationException ex)
+        {
+            _logger.LogWarning("讀取範本 {File} 工作表清單失敗：{Message}", fileName, ex.Message);
             return null;
         }
     }

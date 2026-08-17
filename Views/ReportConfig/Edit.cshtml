@@ -35,37 +35,6 @@
     </div>
 
     <div class="card mb-3">
-        <div class="card-header">範本檔案</div>
-        <div class="card-body">
-            <div class="row g-3 align-items-end">
-                <div class="col-md-5">
-                    <label class="form-label">選擇既有範本</label>
-                    <select class="form-select" id="f-templateSelect">
-                        <option value="">-- 請選擇 --</option>
-                        @foreach (var t in Model.AvailableTemplates)
-                        {
-                            <option value="@t">@t</option>
-                        }
-                    </select>
-                </div>
-                <div class="col-md-5">
-                    <label class="form-label">或上傳新範本 (.xlsx)</label>
-                    <input type="file" class="form-control" id="f-templateUpload" accept=".xlsx" />
-                </div>
-                <div class="col-md-2">
-                    <span class="badge text-bg-info" id="templateFileBadge">尚未選擇</span>
-                    <a id="downloadTemplateLink" class="btn btn-sm btn-outline-secondary mt-1" style="display:none" target="_blank">下載範本</a>
-                </div>
-            </div>
-            <div id="uploadError" class="text-danger mt-2"></div>
-            <div class="mt-3">
-                <strong>範本標記掃描結果：</strong>
-                <div id="scanResultView" class="small text-muted">尚未掃描</div>
-            </div>
-        </div>
-    </div>
-
-    <div class="card mb-3">
         <div class="card-header">資料來源</div>
         <div class="card-body row g-3">
             <div class="col-md-4">
@@ -126,8 +95,42 @@
     </div>
 
     <div class="card mb-3">
-        <div class="card-header">映射設定</div>
+        <div class="card-header">主報表設定</div>
         <div class="card-body">
+            <h6>範本檔案</h6>
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label">選擇既有範本</label>
+                    <select class="form-select" id="f-templateSelect">
+                        <option value="">-- 請選擇 --</option>
+                        @foreach (var t in Model.AvailableTemplates)
+                        {
+                            <option value="@t">@t</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">或上傳新範本 (.xlsx)</label>
+                    <input type="file" class="form-control" id="f-templateUpload" accept=".xlsx" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">要讀取的工作表</label>
+                    <select class="form-select" id="f-templateSheet"></select>
+                </div>
+                <div class="col-md-2">
+                    <span class="badge text-bg-info" id="templateFileBadge">尚未選擇</span>
+                    <a id="downloadTemplateLink" class="btn btn-sm btn-outline-secondary mt-1" style="display:none" target="_blank">下載範本</a>
+                </div>
+            </div>
+            <div id="uploadError" class="text-danger mt-2"></div>
+            <div class="mt-3">
+                <strong>範本標記掃描結果：</strong>
+                <div id="scanResultView" class="small text-muted">尚未掃描</div>
+            </div>
+
+            <hr class="my-4" />
+
+            <h6>映射設定</h6>
             <div class="mb-3">
                 <label class="form-label">根節點 JSONPath (root)</label>
                 <input type="text" class="form-control" id="f-root" value="$.data" style="max-width:300px" />
@@ -151,6 +154,20 @@
         </div>
     </div>
 
+    <div class="card mb-3">
+        <div class="card-header">子報表（產生報表時依序接在主報表後面）</div>
+        <div class="card-body">
+            <div class="text-muted small mb-3">
+                每個子報表是獨立的一份 xlsx 範本（例如 tasks[].items[] 這種巢狀資料的「一個 task 一個表頭 + 明細列」區塊）。
+                產生報表時，會對「父層陣列」的每一個元素各自渲染一次整份子範本、依序接在主報表（以及前一個子報表）後面，
+                子範本內要有兩個集合標記：父層集合（例如 <code>{{tasks.xxx}}</code>，每次渲染剛好展開一列當表頭）與
+                子層集合（例如 <code>{{items.xxx}}</code>，展開該父層元素底下的明細列）。
+            </div>
+            <div id="subReportsArea"></div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="addSubReportBtn">+ 新增子報表</button>
+        </div>
+    </div>
+
     <button type="submit" class="btn btn-primary btn-lg">儲存設定</button>
     <a asp-action="Index" class="btn btn-secondary btn-lg">取消</a>
 </form>
@@ -159,6 +176,10 @@
     <script>
         const initialConfig = @Html.Raw(Json.Serialize(Model.Config));
         let currentScanResult = @Html.Raw(Json.Serialize(Model.ScanResult));
+        const availableTemplates = @Html.Raw(Json.Serialize(Model.AvailableTemplates));
+        const sheetNames = @Html.Raw(Json.Serialize(Model.SheetNames));
+        const subReportScans = @Html.Raw(Json.Serialize(Model.SubReportScans));
+        const subReportSheetNames = @Html.Raw(Json.Serialize(Model.SubReportSheetNames));
 
         function el(tag, cls, html) {
             const e = document.createElement(tag);
@@ -375,6 +396,17 @@
             });
         }
 
+        // ---------- Sheet select ----------
+        function populateSheetSelect(select, names, selectedValue) {
+            select.innerHTML = '';
+            (names || []).forEach((name, idx) => {
+                const o = el('option', '', `(${idx}) ${name}`);
+                o.value = String(idx);
+                if (String(selectedValue ?? '0') === String(idx)) o.selected = true;
+                select.appendChild(o);
+            });
+        }
+
         function applyScanResult(scan, existingMapping) {
             currentScanResult = scan;
             renderScanResult(scan);
@@ -383,11 +415,275 @@
             renderImageMapping(scan, existingMapping?.images);
         }
 
+        // ---------- Sub reports ----------
+        function buildMappingRows(tbody, columns, existingColumnMap, markerPrefix, spreadGetter, inputClass) {
+            tbody.innerHTML = '';
+            columns.forEach(col => {
+                const covered = spreadGetter ? isSpreadCovered(col, spreadGetter()) : false;
+                const existingVal = existingColumnMap && existingColumnMap[col];
+                const tr = el('tr');
+                const td1 = el('td'); td1.innerHTML = markerHtml(markerPrefix + '.' + col);
+                const td2 = el('td');
+                if (covered) {
+                    td2.innerHTML = '<span class="text-muted small">由 spread 設定自動產生，無需個別映射</span>';
+                } else if (col === 'seq') {
+                    td2.innerHTML = '<span class="text-muted small">保留欄位，自動填入序號（1, 2, 3...），不需映射</span>';
+                } else {
+                    const input = el('input', 'form-control ' + inputClass); input.dataset.column = col;
+                    input.value = existingVal || '';
+                    input.placeholder = '$.' + col;
+                    td2.appendChild(input);
+                }
+                tr.appendChild(td1); tr.appendChild(td2);
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderSubReportMapping(area, scan, existing) {
+            area.innerHTML = '';
+            const collections = (scan && scan.collections) || [];
+            if (collections.length === 0) {
+                area.innerHTML = '<div class="text-muted small">此範本內找不到集合標記（例如 <code>{{tasks.xxx}}</code>），至少需要父層與子層兩個集合。</div>';
+                return;
+            }
+
+            function defaultPath(name) { return name ? '$.' + name : ''; }
+
+            const selectorRow = el('div', 'row g-3 mb-2');
+            const pCol = el('div', 'col-md-6');
+            pCol.appendChild(el('label', 'form-label small', '父層集合（表頭，每次渲染只展開一列）'));
+            const parentSelect = el('select', 'form-select sr-parent-collection');
+            collections.forEach(c => { const o = el('option', '', c.name); o.value = c.name; parentSelect.appendChild(o); });
+            pCol.appendChild(parentSelect);
+            const cCol = el('div', 'col-md-6');
+            cCol.appendChild(el('label', 'form-label small', '子層集合（明細列）'));
+            const childSelect = el('select', 'form-select sr-child-collection');
+            collections.forEach(c => { const o = el('option', '', c.name); o.value = c.name; childSelect.appendChild(o); });
+            cCol.appendChild(childSelect);
+            parentSelect.value = existing.parentCollectionName || collections[0].name;
+            childSelect.value = existing.childCollectionName || (collections[1] ? collections[1].name : collections[0].name);
+            selectorRow.appendChild(pCol); selectorRow.appendChild(cCol);
+            area.appendChild(selectorRow);
+
+            const pathRow = el('div', 'row g-3 mb-2');
+            const ppCol = el('div', 'col-md-6');
+            ppCol.appendChild(el('label', 'form-label small', '父層陣列路徑（相對 root）'));
+            const parentPathInput = el('input', 'form-control sr-parent-path');
+            ppCol.appendChild(parentPathInput);
+            const cpCol = el('div', 'col-md-6');
+            cpCol.appendChild(el('label', 'form-label small', '子層陣列路徑（相對每個父層元素）'));
+            const childPathInput = el('input', 'form-control sr-child-path');
+            cpCol.appendChild(childPathInput);
+            pathRow.appendChild(ppCol); pathRow.appendChild(cpCol);
+            area.appendChild(pathRow);
+
+            parentPathInput.value = existing.parentPath || defaultPath(parentSelect.value);
+            childPathInput.value = existing.childPath || defaultPath(childSelect.value);
+
+            const parentTableWrap = el('div');
+            parentTableWrap.appendChild(el('h6', 'mt-2', '父層欄位（相對每個父層元素）'));
+            const parentTable = el('table', 'table table-sm');
+            parentTable.appendChild(el('thead', '', '<tr><th style="width:220px">範本標記</th><th>JSONPath（留空預設用標記名稱）</th></tr>'));
+            const parentTbody = el('tbody');
+            parentTable.appendChild(parentTbody);
+            parentTableWrap.appendChild(parentTable);
+            area.appendChild(parentTableWrap);
+
+            const spreadRow = el('div', 'row g-2 mb-2');
+            const s1 = el('div', 'col-md-4'); s1.appendChild(el('label', 'form-label small', '子層 spread 陣列來源路徑（相對每筆子層元素）'));
+            const spreadFrom = el('input', 'form-control sr-spread-from'); spreadFrom.placeholder = '$.samples[*].measuredValue';
+            s1.appendChild(spreadFrom);
+            const s2 = el('div', 'col-md-3'); s2.appendChild(el('label', 'form-label small', '欄位前綴 (prefix)'));
+            const spreadPrefix = el('input', 'form-control sr-spread-prefix');
+            s2.appendChild(spreadPrefix);
+            const s3 = el('div', 'col-md-3'); s3.appendChild(el('label', 'form-label small', '最大欄數 (max)'));
+            const spreadMax = el('input', 'form-control sr-spread-max'); spreadMax.type = 'number';
+            s3.appendChild(spreadMax);
+            [s1, s2, s3].forEach(x => spreadRow.appendChild(x));
+
+            const existingSpread = existing.childSpread || {};
+            spreadFrom.value = existingSpread.from || '';
+            spreadPrefix.value = existingSpread.prefix || 'v';
+            spreadMax.value = existingSpread.max || 13;
+
+            const childTableWrap = el('div');
+            childTableWrap.appendChild(el('h6', 'mt-3', '子層欄位（相對每個子層元素）'));
+            childTableWrap.appendChild(spreadRow);
+            const childTable = el('table', 'table table-sm');
+            childTable.appendChild(el('thead', '', '<tr><th style="width:220px">範本標記</th><th>JSONPath（留空預設用標記名稱）</th></tr>'));
+            const childTbody = el('tbody');
+            childTable.appendChild(childTbody);
+            childTableWrap.appendChild(childTable);
+            area.appendChild(childTableWrap);
+
+            function renderParentColumns() {
+                const cols = (collections.find(c => c.name === parentSelect.value) || {}).columns || [];
+                buildMappingRows(parentTbody, cols, existing.parentColumns, parentSelect.value, null, 'sr-parent-column-input');
+            }
+            function renderChildColumns() {
+                const cols = (collections.find(c => c.name === childSelect.value) || {}).columns || [];
+                const spreadGetter = () => ({ prefix: spreadPrefix.value, max: parseInt(spreadMax.value, 10) || 0 });
+                buildMappingRows(childTbody, cols, existing.childColumns, childSelect.value, spreadGetter, 'sr-child-column-input');
+            }
+
+            parentSelect.addEventListener('change', () => { parentPathInput.value = defaultPath(parentSelect.value); renderParentColumns(); });
+            childSelect.addEventListener('change', () => { childPathInput.value = defaultPath(childSelect.value); renderChildColumns(); });
+            [spreadPrefix, spreadMax].forEach(i => i.addEventListener('input', renderChildColumns));
+
+            renderParentColumns();
+            renderChildColumns();
+        }
+
+        function createSubReportCard(existing) {
+            existing = existing || {};
+            const card = el('div', 'border rounded p-3 mb-3 subreport-card');
+
+            const headerRow = el('div', 'row g-3 align-items-end mb-2');
+            const c1 = el('div', 'col-md-3');
+            c1.appendChild(el('label', 'form-label', '選擇既有範本'));
+            const select = el('select', 'form-select sr-template-select');
+            select.appendChild(el('option', '', '-- 請選擇 --'));
+            availableTemplates.forEach(t => {
+                const o = el('option', '', t); o.value = t;
+                if (existing.templateFile === t) o.selected = true;
+                select.appendChild(o);
+            });
+            c1.appendChild(select);
+
+            const c2 = el('div', 'col-md-3');
+            c2.appendChild(el('label', 'form-label', '或上傳新範本 (.xlsx)'));
+            const upload = el('input', 'form-control sr-template-upload'); upload.type = 'file'; upload.accept = '.xlsx';
+            c2.appendChild(upload);
+
+            const c3 = el('div', 'col-md-2');
+            c3.appendChild(el('label', 'form-label', '要讀取的工作表'));
+            const sheetSelect = el('select', 'form-select sr-template-sheet');
+            c3.appendChild(sheetSelect);
+
+            const c4 = el('div', 'col-md-3');
+            c4.appendChild(el('label', 'form-label d-block', '&nbsp;'));
+            const badge = el('span', 'badge text-bg-info sr-template-badge', existing.templateFile || '尚未選擇');
+            c4.appendChild(badge);
+            const downloadLink = el('a', 'btn btn-sm btn-outline-secondary mt-1 sr-download-link', '下載範本');
+            downloadLink.target = '_blank';
+            setLinkTarget(downloadLink, existing.templateFile);
+            c4.appendChild(downloadLink);
+
+            const c5 = el('div', 'col-md-1');
+            const removeBtn = el('button', 'btn btn-outline-danger btn-sm', '移除');
+            removeBtn.type = 'button';
+            removeBtn.onclick = () => card.remove();
+            c5.appendChild(removeBtn);
+
+            [c1, c2, c3, c4, c5].forEach(c => headerRow.appendChild(c));
+            card.appendChild(headerRow);
+
+            const errorDiv = el('div', 'text-danger small mb-2 sr-error');
+            card.appendChild(errorDiv);
+
+            const mappingArea = el('div', 'sr-mapping-area');
+            card.appendChild(mappingArea);
+
+            function applyScan(scan, names, selectedSheet) {
+                populateSheetSelect(sheetSelect, names, selectedSheet);
+                renderSubReportMapping(mappingArea, scan, existing);
+            }
+
+            select.addEventListener('change', async () => {
+                const fileName = select.value;
+                if (!fileName) return;
+                badge.textContent = fileName;
+                setLinkTarget(downloadLink, fileName);
+                errorDiv.textContent = '';
+                try {
+                    const resp = await fetch('@Url.Action("ScanTemplate", "ReportConfig")?fileName=' + encodeURIComponent(fileName));
+                    const json = await resp.json();
+                    if (!resp.ok) { errorDiv.textContent = json.message || '掃描失敗'; return; }
+                    applyScan(json.scanResult, json.sheetNames, '0');
+                } catch (e) { errorDiv.textContent = '掃描失敗：' + e; }
+            });
+
+            upload.addEventListener('change', async () => {
+                const file = upload.files[0];
+                if (!file) return;
+                const formData = new FormData();
+                formData.append('file', file);
+                errorDiv.textContent = '';
+                try {
+                    const resp = await fetch('@Url.Action("UploadTemplate", "ReportConfig")', { method: 'POST', body: formData });
+                    const json = await resp.json();
+                    if (!resp.ok) { errorDiv.textContent = json.message || '上傳失敗'; return; }
+                    badge.textContent = json.fileName;
+                    setLinkTarget(downloadLink, json.fileName);
+                    select.value = '';
+                    applyScan(json.scanResult, json.sheetNames, '0');
+                } catch (e) { errorDiv.textContent = '上傳失敗：' + e; }
+            });
+
+            sheetSelect.addEventListener('change', async () => {
+                const fileName = badge.textContent.trim();
+                if (!fileName || fileName === '尚未選擇') return;
+                errorDiv.textContent = '';
+                try {
+                    const resp = await fetch('@Url.Action("ScanTemplate", "ReportConfig")?fileName=' + encodeURIComponent(fileName) + '&sheet=' + encodeURIComponent(sheetSelect.value));
+                    const json = await resp.json();
+                    if (!resp.ok) { errorDiv.textContent = json.message || '掃描失敗'; return; }
+                    renderSubReportMapping(mappingArea, json.scanResult, existing);
+                } catch (e) { errorDiv.textContent = '掃描失敗：' + e; }
+            });
+
+            if (existing.templateFile && subReportScans[existing.templateFile]) {
+                applyScan(subReportScans[existing.templateFile], subReportSheetNames[existing.templateFile], existing.templateSheet);
+            }
+
+            return card;
+        }
+
+        document.getElementById('addSubReportBtn').addEventListener('click', () => {
+            document.getElementById('subReportsArea').appendChild(createSubReportCard({}));
+        });
+
+        function getSubReports() {
+            return Array.from(document.querySelectorAll('.subreport-card')).map(card => {
+                const parentColumns = {};
+                card.querySelectorAll('.sr-parent-column-input').forEach(i => { if (i.value.trim()) parentColumns[i.dataset.column] = i.value.trim(); });
+                const childColumns = {};
+                card.querySelectorAll('.sr-child-column-input').forEach(i => { if (i.value.trim()) childColumns[i.dataset.column] = i.value.trim(); });
+                const spreadFrom = card.querySelector('.sr-spread-from');
+                const parentSelect = card.querySelector('.sr-parent-collection');
+                const childSelect = card.querySelector('.sr-child-collection');
+                const parentPath = card.querySelector('.sr-parent-path');
+                const childPath = card.querySelector('.sr-child-path');
+                return {
+                    templateFile: card.querySelector('.sr-template-badge').textContent.trim(),
+                    templateSheet: card.querySelector('.sr-template-sheet').value || '0',
+                    parentPath: parentPath ? parentPath.value.trim() : '',
+                    parentCollectionName: parentSelect ? parentSelect.value : '',
+                    parentColumns: parentColumns,
+                    childPath: childPath ? childPath.value.trim() : '',
+                    childCollectionName: childSelect ? childSelect.value : '',
+                    childColumns: childColumns,
+                    childSpread: spreadFrom ? {
+                        from: spreadFrom.value.trim(),
+                        prefix: card.querySelector('.sr-spread-prefix').value.trim(),
+                        max: parseInt(card.querySelector('.sr-spread-max').value, 10) || 0
+                    } : null
+                };
+            }).filter(sr => sr.templateFile && sr.templateFile !== '尚未選擇');
+        }
+
         // ---------- Template download link ----------
+        function downloadTemplateUrl(fileName) {
+            return '@Url.Action("DownloadTemplate", "ReportConfig")?fileName=' + encodeURIComponent(fileName);
+        }
+
         function updateDownloadLink(fileName) {
-            const link = document.getElementById('downloadTemplateLink');
+            setLinkTarget(document.getElementById('downloadTemplateLink'), fileName);
+        }
+
+        function setLinkTarget(link, fileName) {
             if (fileName) {
-                link.href = '@Url.Action("DownloadTemplate", "ReportConfig")?fileName=' + encodeURIComponent(fileName);
+                link.href = downloadTemplateUrl(fileName);
                 link.style.display = 'inline-block';
             } else {
                 link.style.display = 'none';
@@ -412,9 +708,27 @@
                 document.getElementById('f-templateSelect').value = '';
                 window.__selectedTemplateFile = json.fileName;
                 updateDownloadLink(json.fileName);
+                populateSheetSelect(document.getElementById('f-templateSheet'), json.sheetNames, '0');
                 applyScanResult(json.scanResult, null);
             } catch (e) {
                 document.getElementById('uploadError').textContent = '上傳失敗：' + e;
+            }
+        });
+
+        document.getElementById('f-templateSheet').addEventListener('change', async (ev) => {
+            const fileName = window.__selectedTemplateFile;
+            if (!fileName) return;
+            document.getElementById('uploadError').textContent = '';
+            try {
+                const resp = await fetch('@Url.Action("ScanTemplate", "ReportConfig")?fileName=' + encodeURIComponent(fileName) + '&sheet=' + encodeURIComponent(ev.target.value));
+                const json = await resp.json();
+                if (!resp.ok) {
+                    document.getElementById('uploadError').textContent = json.message || '掃描失敗';
+                    return;
+                }
+                applyScanResult(json.scanResult, initialConfig.mapping);
+            } catch (e) {
+                document.getElementById('uploadError').textContent = '掃描失敗：' + e;
             }
         });
 
@@ -525,6 +839,7 @@
                 code: document.getElementById('f-code').value.trim(),
                 name: document.getElementById('f-name').value.trim(),
                 templateFile: window.__selectedTemplateFile || initialConfig.templateFile || '',
+                templateSheet: document.getElementById('f-templateSheet').value || '0',
                 dataSource: {
                     type: sourceType,
                     url: document.getElementById('f-url').value.trim(),
@@ -539,7 +854,8 @@
                     fields: fields,
                     collections: collections,
                     images: images
-                }
+                },
+                subReports: getSubReports()
             };
 
             if (!config.templateFile) {
@@ -569,6 +885,7 @@
                 document.getElementById('f-templateSelect').value = initialConfig.templateFile;
                 updateDownloadLink(initialConfig.templateFile);
             }
+            populateSheetSelect(document.getElementById('f-templateSheet'), sheetNames, initialConfig.templateSheet);
 
             const hdrs = (initialConfig.dataSource && initialConfig.dataSource.headers) || {};
             Object.keys(hdrs).forEach(k => addHeaderRow(k, hdrs[k]));
@@ -582,6 +899,11 @@
             // }
 
             applyScanResult(currentScanResult, initialConfig.mapping);
+
+            const subReportsArea = document.getElementById('subReportsArea');
+            (initialConfig.subReports || []).forEach(sr => {
+                subReportsArea.appendChild(createSubReportCard(sr));
+            });
         })();
     </script>
 }

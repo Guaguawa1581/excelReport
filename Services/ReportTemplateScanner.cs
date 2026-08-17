@@ -28,7 +28,7 @@ public class ReportTemplateScanner : IReportTemplateScanner
         _configuration = configuration;
     }
 
-    public TemplateScanResult Scan(byte[] templateBytes)
+    public TemplateScanResult Scan(byte[] templateBytes, string? sheet = null)
     {
         var fields = new List<string>();
         var collections = new Dictionary<string, List<string>>();
@@ -42,7 +42,7 @@ public class ReportTemplateScanner : IReportTemplateScanner
 
         var sharedStrings = workbookPart.GetPartsOfType<SharedStringTablePart>().FirstOrDefault();
         // 取特定sheet
-        var worksheetPart = GetTargetWorksheetPart(workbookPart);
+        var worksheetPart = GetTargetWorksheetPart(workbookPart, sheet);
 
         var worksheetParts = workbookPart.WorksheetParts;
         // foreach (var worksheetPart in worksheetParts)
@@ -111,9 +111,10 @@ public class ReportTemplateScanner : IReportTemplateScanner
         return content.Contains("conformance=\"strict\"", StringComparison.Ordinal);
     }
 
-    /// <summary>依 appsettings 的 TemplateScan:Sheet 決定要掃描哪個工作表：
-    /// 數字視為 0 起始的順序索引，字串視為工作表名稱。未設定時預設第一個（索引 0）。</summary>
-    private WorksheetPart GetTargetWorksheetPart(WorkbookPart workbookPart)
+    /// <summary>決定要處理哪個工作表：數字視為 0 起始的順序索引，字串視為工作表名稱。
+    /// sheet 參數是每份範本（主範本或子報表）各自存的選擇；沒填的話 fallback 到 appsettings 的
+    /// TemplateScan:Sheet（舊設定檔沒有這個欄位時的相容行為），再沒有就預設第一個（索引 0）。</summary>
+    public WorksheetPart GetTargetWorksheetPart(WorkbookPart workbookPart, string? sheet = null)
     {
         var sheets = workbookPart.Workbook.Sheets?.Elements<Sheet>().ToList();
         if (sheets == null || sheets.Count == 0)
@@ -121,7 +122,7 @@ public class ReportTemplateScanner : IReportTemplateScanner
             throw new ReportGenerationException("範本檔案格式不正確，找不到工作表。");
         }
 
-        var setting = _configuration["TemplateScan:Sheet"] ?? "0";
+        var setting = !string.IsNullOrWhiteSpace(sheet) ? sheet : (_configuration["TemplateScan:Sheet"] ?? "0");
 
         Sheet targetSheet;
         if (int.TryParse(setting, out var index))
@@ -142,6 +143,20 @@ public class ReportTemplateScanner : IReportTemplateScanner
             ?? throw new ReportGenerationException("範本檔案格式不正確，工作表缺少 Id。");
 
         return (WorksheetPart)workbookPart.GetPartById(sheetId);
+    }
+
+    /// <summary>依原始 xlsx 內的排列順序回傳所有工作表名稱，供設定頁面畫出「(索引)名稱」的
+    /// 選單，讓使用者自己選要用哪一頁，取代原本寫死在 appsettings 的單一預設值。</summary>
+    public List<string> GetSheetNames(byte[] templateBytes)
+    {
+        using var stream = new MemoryStream(templateBytes);
+        using var document = SpreadsheetDocument.Open(stream, false);
+        var workbookPart = document.WorkbookPart
+            ?? throw new ReportGenerationException("範本檔案格式不正確，找不到活頁簿內容。");
+
+        return workbookPart.Workbook.Sheets?.Elements<Sheet>()
+            .Select(s => s.Name?.Value ?? "")
+            .ToList() ?? new List<string>();
     }
 
     private static string GetCellText(Cell cell, SharedStringTablePart? sharedStrings)

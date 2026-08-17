@@ -6,9 +6,16 @@ public class ReportConfig
     public string Code { get; set; } = "";
     public string Name { get; set; } = "";
     public string TemplateFile { get; set; } = "";
+    /// <summary>要讀取範本檔的哪個工作表：數字視為 0 起始的順序索引，字串視為工作表名稱。
+    /// 留空時 fallback 到 appsettings 的 TemplateScan:Sheet（沿用舊設定檔行為）。</summary>
+    public string TemplateSheet { get; set; } = "";
     public DataSourceConfig DataSource { get; set; } = new();
     public List<ParameterDef> Parameters { get; set; } = new();
     public MappingConfig Mapping { get; set; } = new();
+    /// <summary>子報表：獨立的 xlsx 範本檔，產生報表時依序渲染、接在主範本（以及前一個子報表）
+    /// 後面。每個子報表各自綁定一組父層/子層陣列（如 tasks[].items[]），依父層元素數量重複整份
+    /// 子範本；同一個 ReportConfig 可以設定多個子報表，依清單順序依序附加。</summary>
+    public List<SubReportConfig> SubReports { get; set; } = new();
 }
 
 /// <summary>
@@ -44,6 +51,35 @@ public class MappingConfig
     public Dictionary<string, string> Fields { get; set; } = new();
     public List<CollectionMapping> Collections { get; set; } = new();
     public Dictionary<string, ImageMapping> Images { get; set; } = new();
+}
+
+/// <summary>
+/// 一份子報表：獨立的 xlsx 範本檔，綁定一組父層/子層陣列(如 tasks[].items[])，渲染時對父層
+/// 陣列的每個元素各自渲染一次整份子範本(父層集合永遠只塞一筆讓表頭列剛好展開一次；子層集合
+/// 塞該父層底下全部元素)，再把渲染結果整份接到目前輸出的工作表後面。因為 MiniExcel 一個範本
+/// 區域只能由一個集合驅動展開列數，沒辦法讓「父層列數」跟「子層列數」同時各自獨立變動，所以
+/// 拆成獨立檔案、逐一渲染再拼接，而不是用一般 Collections 那種單層攤平的路徑。
+/// </summary>
+public class SubReportConfig
+{
+    public string TemplateFile { get; set; } = "";
+    /// <summary>要讀取這份子報表範本檔的哪個工作表：數字視為 0 起始的順序索引，字串視為工作表
+    /// 名稱。留空時 fallback 到 appsettings 的 TemplateScan:Sheet。</summary>
+    public string TemplateSheet { get; set; } = "";
+    /// <summary>父層陣列的 JSONPath，相對 root，例如 "$.tasks"。</summary>
+    public string ParentPath { get; set; } = "";
+    /// <summary>對應範本標記前綴，例如 {{tasks.xxx}} 就填 "tasks"。</summary>
+    public string ParentCollectionName { get; set; } = "";
+    /// <summary>父層欄位的 JSONPath，相對每個父層元素自己；留空時預設 "$.{欄位名}"。</summary>
+    public Dictionary<string, string> ParentColumns { get; set; } = new();
+    /// <summary>子層陣列的 JSONPath，相對每個父層元素，例如 "$.items"。</summary>
+    public string ChildPath { get; set; } = "";
+    /// <summary>對應範本標記前綴，例如 {{items.xxx}} 就填 "items"。</summary>
+    public string ChildCollectionName { get; set; } = "";
+    /// <summary>子層欄位的 JSONPath，相對每個子層元素自己；留空時預設 "$.{欄位名}"。
+    /// 欄位名為 "seq" 時是保留字，自動填入該元素在陣列中的序號(從 1 開始)，不會走 JSONPath。</summary>
+    public Dictionary<string, string> ChildColumns { get; set; } = new();
+    public SpreadConfig? ChildSpread { get; set; }
 }
 
 /// <summary>集合（明細）映射設定。</summary>

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using excelReport.Models;
@@ -74,18 +75,25 @@ public class ReportEngine : IReportEngine
                 throw new ReportGenerationException($"資料來源回傳的內容不是有效的 JSON：{ex.Message}", ex);
             }
 
-            var templateBytes = await LoadTemplateBytesAsync(config);
+            var templateBytes = await LoadTemplateBytesAsync(config.TemplateFile);
             // 讀取excel sheet
-            var scanResult = _scanner.Scan(templateBytes);
+            var scanResult = _scanner.Scan(templateBytes, config.TemplateSheet);
 
             var rootToken = ResolveRoot(root, config.Mapping.Root);
+            var imageValues = ResolveImages(config.Mapping, rootToken);
+
             // 用範本實際掃到的標記驅動資料字典的建立（而非只看設定裡填了什麼），確保範本裡
             // 每個標記都會有對應的 key——即使某個標記完全沒有在映射設定填寫任何內容也一樣。
             // 少了這一步，MiniExcel 套版時遇到資料字典裡不存在的 key 會拋出 NullReferenceException。
             var data = BuildDataDictionary(config.Mapping, scanResult, rootToken);
-            var imageValues = ResolveImages(config.Mapping, rootToken);
-
             var fileBytes = await RenderTemplateAsync(templateBytes, data, cancellationToken);
+
+            if (config.SubReports.Count > 0)
+            {
+                // 子報表：各自獨立的 xlsx 範本，依序渲染、接在主報表（以及前一個子報表）後面。
+                fileBytes = await AppendSubReportsAsync(config.SubReports, fileBytes, config.TemplateSheet, rootToken, cancellationToken);
+            }
+
             if (config.Mapping.Images.Count > 0)
             {
                 fileBytes = await EmbedImagesAsync(fileBytes, config.Mapping.Images, imageValues, cancellationToken);
@@ -151,12 +159,8 @@ public class ReportEngine : IReportEngine
     private static string EffectivePath(string fieldKey, string? configuredPath) =>
         string.IsNullOrWhiteSpace(configuredPath) ? $"$.{fieldKey}" : configuredPath;
 
-    /// <summary>
-    /// 以範本實際掃到的標記（scanResult）為準來建立資料字典，而不是只看 mapping 設定裡有寫什麼。
-    /// mapping 只提供「有填寫的話要用哪個 JSONPath」
-    /// 所有標記都會得到一個對應的資料字典 key（找不到節點就給空字串）。
-    /// </summary>
-    private static Dictionary<string, object> BuildDataDictionary(MappingConfig mapping, TemplateScanResult scanResult, JToken rootToken)
+    /// <summary>只建立單值欄位（fields）那一份資料，供一般路徑與巢狀子表路徑共用。</summary>
+    private static Dictionary<string, object> BuildFieldsData(MappingConfig mapping, TemplateScanResult scanResult, JToken rootToken)
     {
         var data = new Dictionary<string, object> { [ReservedColumnName] = "" };
 
@@ -167,36 +171,60 @@ public class ReportEngine : IReportEngine
             data[fieldKey] = token == null ? "" : TokenToValue(token);
         }
 
+        return data;
+    }
+
+    /// <summary>
+    /// 以範本實際掃到的標記（scanResult）為準來建立資料字典，而不是只看 mapping 設定裡有寫什麼。
+    /// mapping 只提供「有填寫的話要用哪個 JSONPath」
+    /// 所有標記都會得到一個對應的資料字典 key（找不到節點就給空字串）。
+    /// </summary>
+    private static Dictionary<string, object> BuildDataDictionary(MappingConfig mapping, TemplateScanResult scanResult, JToken rootToken)
+    {
+        var data = BuildFieldsData(mapping, scanResult, rootToken);
+
         foreach (var collectionScan in scanResult.Collections)
         {
             var collectionMapping = mapping.Collections.FirstOrDefault(c => c.Name == collectionScan.Name);
             var collectionPath = EffectivePath(collectionScan.Name, collectionMapping?.Path);
-            var arrayToken = rootToken.SelectToken(collectionPath);
-            var rows = new List<IDictionary<string, object>>();
+            var resolvedToken = rootToken.SelectToken(collectionPath);
+            var spread = collectionMapping?.Spread;
 
-            if (arrayToken != null && arrayToken.Type == JTokenType.Array)
+            Dictionary<string, object> BuildRow(JToken item)
             {
-                var spread = collectionMapping?.Spread;
-                foreach (var item in arrayToken)
+                var row = new Dictionary<string, object> { [ReservedColumnName] = "" };
+                foreach (var columnKey in collectionScan.Columns)
                 {
-                    var row = new Dictionary<string, object> { [ReservedColumnName] = "" };
-                    foreach (var columnKey in collectionScan.Columns)
-                    {
-                        string? configuredColumnPath = null;
-                        collectionMapping?.Columns.TryGetValue(columnKey, out configuredColumnPath);
-                        var valueToken = item.SelectToken(EffectivePath(columnKey, configuredColumnPath));
-                        row[columnKey] = valueToken == null ? "" : TokenToValue(valueToken);
-                    }
+                    string? configuredColumnPath = null;
+                    collectionMapping?.Columns.TryGetValue(columnKey, out configuredColumnPath);
+                    var valueToken = item.SelectToken(EffectivePath(columnKey, configuredColumnPath));
+                    row[columnKey] = valueToken == null ? "" : TokenToValue(valueToken);
+                }
 
-                    if (spread != null)
-                    {
-                        ApplySpread(item, spread, row);
-                    }
+                if (spread != null)
+                {
+                    ApplySpread(item, spread, row);
+                }
 
-                    rows.Add(row);
+                return row;
+            }
+
+            var rows = new List<IDictionary<string, object>>();
+            if (resolvedToken != null && resolvedToken.Type == JTokenType.Array)
+            {
+                // 陣列：逐筆展開成多列（迴圈渲染）。
+                foreach (var item in resolvedToken)
+                {
+                    rows.Add(BuildRow(item));
                 }
             }
-            // 找不到對應節點（或節點不是陣列）時，視為沒有明細列，不中斷報表產生。
+            else if (resolvedToken != null && resolvedToken.Type == JTokenType.Object)
+            {
+                // 物件：包成只有一個元素的 list，重用同一條渲染路徑，MiniExcel 只會產生一列、
+                // 不迴圈——等同於「取用物件屬性值」。
+                rows.Add(BuildRow(resolvedToken));
+            }
+            // 找不到對應節點、或節點是純量卻寫成點記法：視為沒有明細列，不中斷報表產生。
 
             data[collectionScan.Name] = rows;
         }
@@ -226,6 +254,238 @@ public class ReportEngine : IReportEngine
         if (token.Type == JTokenType.Null) return "";
         if (token is JValue jv) return jv.Value?.ToString() ?? "";
         return token.ToString();
+    }
+
+    /// <summary>集合列欄位的保留字：自動填入該元素在陣列中的序號（從 1 開始），不走 JSONPath。</summary>
+    private const string SeqColumnName = "seq";
+
+    /// <summary>建立巢狀子表其中一列（父層列或子層列共用）的資料。columns 是範本實際掃到的欄位
+    /// 名稱清單，configuredColumns 是設定檔裡「有填寫的話要用哪個 JSONPath」。</summary>
+    private static Dictionary<string, object> BuildNestedRow(
+        List<string> columns, Dictionary<string, string> configuredColumns, JToken item, int index, SpreadConfig? spread)
+    {
+        var row = new Dictionary<string, object> { [ReservedColumnName] = "" };
+        foreach (var columnKey in columns)
+        {
+            if (columnKey == SeqColumnName && !configuredColumns.ContainsKey(SeqColumnName))
+            {
+                row[columnKey] = (index + 1).ToString(CultureInfo.InvariantCulture);
+                continue;
+            }
+
+            configuredColumns.TryGetValue(columnKey, out var configuredPath);
+            var valueToken = item.SelectToken(EffectivePath(columnKey, configuredPath));
+            row[columnKey] = valueToken == null ? "" : TokenToValue(valueToken);
+        }
+
+        if (spread != null)
+        {
+            ApplySpread(item, spread, row);
+        }
+
+        return row;
+    }
+
+    /// <summary>
+    /// 依序渲染每個子報表、接在 mainBytes（主報表，或前一個子報表接完後的結果）後面。每個子報表
+    /// 都是獨立的 xlsx 範本檔，綁定一組父層/子層陣列（如 tasks[].items[]）：對父層陣列的每個
+    /// 元素各自渲染一次整份子範本（父層集合永遠只塞一筆，讓表頭列剛好展開一次；子層集合塞該
+    /// 父層底下全部元素），再把渲染結果整份的列取出來、往下平移列號後接到目前輸出的工作表後面。
+    /// 因為 MiniExcel 一個範本區域只能由一個集合驅動展開列數，沒辦法讓父層/子層列數在同一次
+    /// 渲染裡各自獨立變動，所以拆成獨立檔案逐一渲染再拼接，而不是用一般 Collections 那種
+    /// 單層攤平的路徑。
+    /// </summary>
+    private async Task<byte[]> AppendSubReportsAsync(
+        List<SubReportConfig> subReports, byte[] mainBytes, string mainSheet, JToken rootToken, CancellationToken cancellationToken)
+    {
+        using var accumulatorStream = new MemoryStream();
+        accumulatorStream.Write(mainBytes, 0, mainBytes.Length);
+        accumulatorStream.Position = 0;
+
+        using (var accumulatorDoc = SpreadsheetDocument.Open(accumulatorStream, true))
+        {
+            var currentMaxRow = GetMaxRowIndex(accumulatorDoc, _scanner, mainSheet);
+
+            foreach (var subReport in subReports)
+            {
+                if (string.IsNullOrWhiteSpace(subReport.TemplateFile)) continue;
+
+                var subTemplateBytes = await LoadTemplateBytesAsync(subReport.TemplateFile);
+                var subScanResult = _scanner.Scan(subTemplateBytes, subReport.TemplateSheet);
+
+                var parentColumns = subScanResult.Collections.FirstOrDefault(c => c.Name == subReport.ParentCollectionName)?.Columns ?? new List<string>();
+                var childColumns = subScanResult.Collections.FirstOrDefault(c => c.Name == subReport.ChildCollectionName)?.Columns ?? new List<string>();
+
+                var parentTokens = (rootToken.SelectToken(subReport.ParentPath) as JArray)?.ToList() ?? new List<JToken>();
+
+                for (var i = 0; i < parentTokens.Count; i++)
+                {
+                    var parentToken = parentTokens[i];
+                    var childTokens = (parentToken.SelectToken(subReport.ChildPath) as JArray)?.ToList() ?? new List<JToken>();
+
+                    var data = new Dictionary<string, object>
+                    {
+                        [ReservedColumnName] = "",
+                        [subReport.ParentCollectionName] = new List<IDictionary<string, object>>
+                        {
+                            BuildNestedRow(parentColumns, subReport.ParentColumns, parentToken, i, spread: null)
+                        },
+                        [subReport.ChildCollectionName] = childTokens
+                            .Select((child, childIndex) => (IDictionary<string, object>)BuildNestedRow(childColumns, subReport.ChildColumns, child, childIndex, subReport.ChildSpread))
+                            .ToList()
+                    };
+
+                    var renderedBytes = await RenderTemplateAsync(subTemplateBytes, data, cancellationToken);
+                    currentMaxRow = AppendAllRows(accumulatorDoc, _scanner, mainSheet, renderedBytes, subReport.TemplateSheet, currentMaxRow);
+                }
+            }
+        }
+
+        return accumulatorStream.ToArray();
+    }
+
+    private static int GetMaxRowIndex(SpreadsheetDocument document, IReportTemplateScanner scanner, string? sheet)
+    {
+        var worksheetPart = scanner.GetTargetWorksheetPart(document.WorkbookPart!, sheet);
+        var sheetData = worksheetPart.Worksheet.GetFirstChild<SheetData>();
+        var rows = sheetData?.Elements<Row>().ToList() ?? new List<Row>();
+        return rows.Count == 0 ? 0 : (int)rows.Max(r => r.RowIndex?.Value ?? 0);
+    }
+
+    /// <summary>把 sourceBytes（某個子報表的完整渲染結果）的所有列（含合併儲存格範圍），依
+    /// offset 平移列號後接到 accumulatorDoc 目前的工作表後面。子報表是獨立的 xlsx 檔，不像
+    /// 主報表混雜固定欄位，所以整份檔案的每一列都屬於要接上去的內容，不需要另外切出範圍。
+    /// accumulatorSheet 是主報表自己選的工作表(整個拼接過程中固定不變)，sourceSheet 是這個
+    /// 子報表自己選的工作表，兩者可能不同。主報表與子報表用各自獨立的範本渲染，styles.xml/
+    /// sharedStrings 彼此獨立；文字一律轉成 inlineStr，避免要處理「兩邊各自獨立的 sharedStrings
+    /// 索引對不上」的問題。</summary>
+    private static int AppendAllRows(
+        SpreadsheetDocument accumulatorDoc, IReportTemplateScanner scanner, string? accumulatorSheet,
+        byte[] sourceBytes, string? sourceSheet, int currentMaxRow)
+    {
+        var accumulatorSheetPart = scanner.GetTargetWorksheetPart(accumulatorDoc.WorkbookPart!, accumulatorSheet);
+        var accumulatorSheetData = accumulatorSheetPart.Worksheet.GetFirstChild<SheetData>()
+            ?? accumulatorSheetPart.Worksheet.AppendChild(new SheetData());
+
+        using var sourceStream = new MemoryStream(sourceBytes);
+        using var sourceDoc = SpreadsheetDocument.Open(sourceStream, false);
+        var sourceWorkbookPart = sourceDoc.WorkbookPart!;
+        var sourceSheetPart = scanner.GetTargetWorksheetPart(sourceWorkbookPart, sourceSheet);
+        var sourceSharedStrings = sourceWorkbookPart.GetPartsOfType<SharedStringTablePart>().FirstOrDefault();
+        var sourceSheetData = sourceSheetPart.Worksheet.GetFirstChild<SheetData>();
+
+        var rowsToCopy = (sourceSheetData?.Elements<Row>() ?? Enumerable.Empty<Row>())
+            .Where(r => r.RowIndex is not null)
+            .OrderBy(r => r.RowIndex!.Value)
+            .ToList();
+
+        var offset = currentMaxRow;
+
+        foreach (var srcRow in rowsToCopy)
+        {
+            var newRowIndex = (uint)(srcRow.RowIndex!.Value + offset);
+            var newRow = new Row { RowIndex = newRowIndex };
+            if (srcRow.Height is not null) newRow.Height = srcRow.Height.Value;
+            if (srcRow.CustomHeight is not null) newRow.CustomHeight = srcRow.CustomHeight.Value;
+            if (srcRow.ThickBot is not null) newRow.ThickBot = srcRow.ThickBot.Value;
+
+            foreach (var srcCell in srcRow.Elements<Cell>())
+            {
+                var newCell = new Cell
+                {
+                    CellReference = ShiftCellReferenceRow(srcCell.CellReference!.Value!, offset),
+                    StyleIndex = srcCell.StyleIndex
+                };
+
+                if (srcCell.DataType?.Value == CellValues.SharedString)
+                {
+                    var text = ResolveSharedStringText(srcCell, sourceSharedStrings);
+                    if (!string.IsNullOrEmpty(text))
+                    {
+                        newCell.DataType = CellValues.InlineString;
+                        newCell.InlineString = new InlineString(new Text(text) { Space = SpaceProcessingModeValues.Preserve });
+                    }
+                }
+                else if (srcCell.DataType?.Value == CellValues.InlineString)
+                {
+                    if (srcCell.InlineString is not null)
+                    {
+                        newCell.DataType = CellValues.InlineString;
+                        newCell.InlineString = (InlineString)srcCell.InlineString.CloneNode(true);
+                    }
+                }
+                else
+                {
+                    if (srcCell.DataType is not null) newCell.DataType = srcCell.DataType.Value;
+                    if (srcCell.CellValue is not null) newCell.CellValue = new CellValue(srcCell.CellValue.Text);
+                }
+
+                newRow.Append(newCell);
+            }
+
+            accumulatorSheetData.Append(newRow);
+        }
+
+        var sourceMergeCells = sourceSheetPart.Worksheet.GetFirstChild<MergeCells>();
+        if (sourceMergeCells is not null)
+        {
+            var accumulatorMergeCells = accumulatorSheetPart.Worksheet.GetFirstChild<MergeCells>();
+            if (accumulatorMergeCells is null)
+            {
+                accumulatorMergeCells = new MergeCells();
+                accumulatorSheetPart.Worksheet.InsertAfter(accumulatorMergeCells, accumulatorSheetData);
+            }
+
+            foreach (var mc in sourceMergeCells.Elements<MergeCell>())
+            {
+                var (startRef, endRef) = SplitMergeRange(mc.Reference!.Value!);
+                var (startCol, startRow) = ParseCellReferenceParts(startRef);
+                var (endCol, endRow) = ParseCellReferenceParts(endRef);
+                accumulatorMergeCells.Append(new MergeCell { Reference = $"{startCol}{startRow + offset}:{endCol}{endRow + offset}" });
+            }
+
+            accumulatorMergeCells.Count = (uint)accumulatorMergeCells.Elements<MergeCell>().Count();
+        }
+
+        var newMaxRow = rowsToCopy.Count > 0 ? (int)(rowsToCopy.Max(r => r.RowIndex!.Value) + offset) : currentMaxRow;
+
+        var dimension = accumulatorSheetPart.Worksheet.GetFirstChild<SheetDimension>();
+        if (dimension is not null)
+        {
+            var (startRef, _) = SplitMergeRange(dimension.Reference!.Value!);
+            var (startCol, startRow) = ParseCellReferenceParts(startRef);
+            dimension.Reference = $"{startCol}{startRow}:XFD{newMaxRow}";
+        }
+
+        accumulatorSheetPart.Worksheet.Save();
+        return newMaxRow;
+    }
+
+    private static string ResolveSharedStringText(Cell cell, SharedStringTablePart? sharedStrings)
+    {
+        if (sharedStrings == null || cell.CellValue == null) return "";
+        if (!int.TryParse(cell.CellValue.Text, out var idx)) return "";
+        var items = sharedStrings.SharedStringTable.Elements<SharedStringItem>().ToList();
+        return idx >= 0 && idx < items.Count ? items[idx].InnerText : "";
+    }
+
+    private static (string Start, string End) SplitMergeRange(string reference)
+    {
+        var parts = reference.Split(':');
+        return parts.Length == 2 ? (parts[0], parts[1]) : (parts[0], parts[0]);
+    }
+
+    private static (string Column, int Row) ParseCellReferenceParts(string cellReference)
+    {
+        var letters = new string(cellReference.TakeWhile(char.IsLetter).ToArray());
+        var digits = cellReference[letters.Length..];
+        return (letters, int.Parse(digits, CultureInfo.InvariantCulture));
+    }
+
+    private static string ShiftCellReferenceRow(string cellReference, int offset)
+    {
+        var (col, row) = ParseCellReferenceParts(cellReference);
+        return $"{col}{row + offset}";
     }
 
     /// <summary>解析圖片欄位的原始值（URL 或 base64 內容）。path 以 "$" 開頭視為 JSONPath；
@@ -475,16 +735,16 @@ public class ReportEngine : IReportEngine
         return ImagePartType.Png;
     }
 
-    private async Task<byte[]> LoadTemplateBytesAsync(ReportConfig config)
+    private async Task<byte[]> LoadTemplateBytesAsync(string templateFile)
     {
-        var templatePath = Path.Combine(_env.ContentRootPath, "App_Data", "templates", config.TemplateFile);
+        var templatePath = Path.Combine(_env.ContentRootPath, "App_Data", "templates", templateFile);
         if (!File.Exists(templatePath))
         {
-            throw new ReportGenerationException($"找不到範本檔案：{config.TemplateFile}");
+            throw new ReportGenerationException($"找不到範本檔案：{templateFile}");
         }
 
         var lastWriteTicks = File.GetLastWriteTimeUtc(templatePath).Ticks;
-        var cacheKey = $"tpl:{config.TemplateFile}:{lastWriteTicks}";
+        var cacheKey = $"tpl:{templateFile}:{lastWriteTicks}";
         return await _cache.GetOrCreateAsync(cacheKey, entry =>
         {
             entry.SlidingExpiration = TimeSpan.FromMinutes(30);
