@@ -13,6 +13,12 @@ public class TemplateScanResult
     /// 避免 MiniExcel 套版時誤處理——MiniExcel 完全不認得 [[]]，等它套版完再由
     /// ReportEngine 另外掃描、下載/解碼並嵌入圖片）。</summary>
     public List<string> ImageFields { get; set; } = new();
+
+    /// <summary>範本裡實際出現過的 {{__end__}} 大括號內文字，含使用者打的任何空白變體（例如
+    /// "__end__" 或 " __end__ "）。MiniExcel 自己的套版引擎是直接拿大括號內的原始文字（不會像
+    /// 我們自己的掃描正則那樣先 trim 掉空白）當資料字典的 key 查值，所以要把每一種實際出現過的
+    /// 原始寫法都當成 key 補值，範本作者不管有沒有在大括號內加空白都能正常運作。</summary>
+    public List<string> EndMarkerRawKeys { get; set; } = new();
 }
 
 /// <summary>單一集合標記分組結果。</summary>

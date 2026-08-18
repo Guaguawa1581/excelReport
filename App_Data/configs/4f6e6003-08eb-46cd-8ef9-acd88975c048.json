@@ -36,7 +36,7 @@
             },
             "spread": {
               "from": "$.samples[*]",
-              "property": "$.result",
+              "property": "$.measuredValue",
               "prefix": "v",
               "max": 13
             }

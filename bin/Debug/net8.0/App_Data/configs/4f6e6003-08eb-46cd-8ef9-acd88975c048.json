@@ -1,6 +1,6 @@
 {
   "logId": "4f6e6003-08eb-46cd-8ef9-acd88975c048",
-  "code": "SupplierIns_COPY",
+  "code": "SupplierIns_MAX",
   "name": "外檢報表 max",
   "templateFile": "檢驗template.xlsx",
   "templateSheet": "0",
@@ -36,7 +36,7 @@
             },
             "spread": {
               "from": "$.samples[*]",
-              "property": "result",
+              "property": "$.measuredValue",
               "prefix": "v",
               "max": 13
             }

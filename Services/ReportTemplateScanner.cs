@@ -21,6 +21,21 @@ public class ReportTemplateScanner : IReportTemplateScanner
     /// <summary>保留欄位名，引擎會自動補上空字串值，不需要（也不應該）讓使用者手動映射。</summary>
     private const string ReservedColumnName = "_str";
 
+    /// <summary>保留標記 {{__end__}}：範本作者打在「內容結束後、第一個不算數的空列」，讓
+    /// ReportEngine 接續子報表時知道從哪一列開始不算內容。這裡只負責排除它、不讓它被當成一般
+    /// 欄位；實際的列號要等 ReportEngine 套版「之後」再掃一次渲染結果去抓，不能在這裡（套版前）
+    /// 直接記錄——如果標記前面還有 {{items.xxx}} 這種集合標記，套版時會依資料筆數展開成多列，
+    /// 標記實際落點的列號會跟著往下移動，套版前掃到的列號就不準了。跟 _str 一樣不需要（也不
+    /// 應該）讓使用者手動映射。</summary>
+    private const string EndMarkerName = "__end__";
+
+    /// <summary>套版前面已經用 marker（trim 過的）判斷是不是 __end__；這裡另外記下大括號內「trim
+    /// 前」的原始文字（例如 "__end__" 或 " __end__ "），回傳給 ReportEngine 補進資料字典當 key。
+    /// 原因：MiniExcel 自己的套版引擎是直接拿大括號內的原始文字查資料字典，不會像這支正則一樣
+    /// 先把首尾空白去掉，範本作者不管是打 {{__end__}} 還是 {{ __end__ }} 都要能正常運作。</summary>
+    private static string ExtractRawInner(Match match) =>
+        match.Value.Length >= 4 ? match.Value[2..^2] : match.Groups[1].Value;
+
     private readonly IConfiguration _configuration;
 
     public ReportTemplateScanner(IConfiguration configuration)
@@ -33,6 +48,7 @@ public class ReportTemplateScanner : IReportTemplateScanner
         var fields = new List<string>();
         var collections = new Dictionary<string, List<string>>();
         var imageFields = new List<string>();
+        var endMarkerRawKeys = new List<string>();
 
         using var stream = new MemoryStream(templateBytes);
         using var document = SpreadsheetDocument.Open(stream, false);
@@ -57,6 +73,12 @@ public class ReportTemplateScanner : IReportTemplateScanner
             foreach (Match match in MarkerRegex.Matches(text))
             {
                 var marker = match.Groups[1].Value;
+                if (marker == EndMarkerName)
+                {
+                    var rawInner = ExtractRawInner(match);
+                    if (!endMarkerRawKeys.Contains(rawInner)) endMarkerRawKeys.Add(rawInner);
+                    continue;
+                }
                 var dotIndex = marker.IndexOf('.');
                 if (dotIndex < 0)
                 {
@@ -90,7 +112,8 @@ public class ReportTemplateScanner : IReportTemplateScanner
             ImageFields = imageFields,
             Collections = collections
                 .Select(kv => new CollectionScanResult { Name = kv.Key, Columns = kv.Value })
-                .ToList()
+                .ToList(),
+            EndMarkerRawKeys = endMarkerRawKeys
         };
     }
 

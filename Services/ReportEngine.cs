@@ -88,10 +88,17 @@ public class ReportEngine : IReportEngine
             var data = BuildDataDictionary(config.Mapping, scanResult, rootToken);
             var fileBytes = await RenderTemplateAsync(templateBytes, data, cancellationToken);
 
+            // {{__end__}} 標記（如果範本有放）要等套版「之後」才知道實際落點：標記前面若有集合
+            // 欄位（{{items.xxx}}）依資料筆數展開成多列，標記的列號會跟著往下位移，沿用套版前
+            // 掃到的列號會截斷展開出來的列。不管有沒有子報表都要做這一步，不然沒有子報表時範本
+            // 裡會留下沒清掉的 "__end__" 文字。
+            var (trimmedBytes, mainContentMaxRow) = TrimMainReportTail(_scanner, fileBytes, config.TemplateSheet);
+            fileBytes = trimmedBytes;
+
             if (config.SubReports.Count > 0)
             {
                 // 子報表：各自獨立的 xlsx 範本，依序渲染、接在主報表（以及前一個子報表）後面。
-                fileBytes = await AppendSubReportsAsync(config.SubReports, fileBytes, config.TemplateSheet, rootToken, cancellationToken);
+                fileBytes = await AppendSubReportsAsync(config.SubReports, fileBytes, config.TemplateSheet, mainContentMaxRow, rootToken, cancellationToken);
             }
 
             if (config.Mapping.Images.Count > 0)
@@ -155,6 +162,13 @@ public class ReportEngine : IReportEngine
     /// </summary>
     private const string ReservedColumnName = "_str";
 
+    /// <summary>保留標記 {{__end__}}，跟 ReportTemplateScanner 裡的同名常數對應。範本作者打在
+    /// 「內容結束後、第一個不算數的空列」；套版時讓 MiniExcel 把它換成標記名稱本身（字面上的
+    /// "__end__"，見 BuildFieldsData），而不是空字串——套版「之後」還要能在渲染結果裡找到這個
+    /// 值所在的儲存格，藉此換算出標記實際落點的列號（可能因為前面有集合展開而位移，見
+    /// FindMarkerRow 的說明），空字串沒辦法拿來搜尋定位。</summary>
+    private const string EndMarkerName = "__end__";
+
     /// <summary>範本標記沒有填寫對應 JSONPath 時的預設路徑："$.{標記名稱}"。</summary>
     private static string EffectivePath(string fieldKey, string? configuredPath) =>
         string.IsNullOrWhiteSpace(configuredPath) ? $"$.{fieldKey}" : configuredPath;
@@ -162,7 +176,15 @@ public class ReportEngine : IReportEngine
     /// <summary>只建立單值欄位（fields）那一份資料，供一般路徑與巢狀子表路徑共用。</summary>
     private static Dictionary<string, object> BuildFieldsData(MappingConfig mapping, TemplateScanResult scanResult, JToken rootToken)
     {
-        var data = new Dictionary<string, object> { [ReservedColumnName] = "" };
+        var data = new Dictionary<string, object> { [ReservedColumnName] = "", [EndMarkerName] = EndMarkerName };
+        // MiniExcel 自己套版時是直接拿大括號內的原始文字（含使用者打的任何空白）查資料字典，
+        // 不會先 trim；範本裡不管實際打的是 {{__end__}} 還是 {{ __end__ }}，scanResult 都已經
+        // 把「trim 前」原始出現過的每一種寫法收集起來，這裡全部補值成同一個標記名稱，兩種寫法
+        // 都能正常運作。
+        foreach (var rawKey in scanResult.EndMarkerRawKeys)
+        {
+            data[rawKey] = EndMarkerName;
+        }
 
         foreach (var fieldKey in scanResult.Fields)
         {
@@ -290,7 +312,8 @@ public class ReportEngine : IReportEngine
     /// 後面。
     /// </summary>
     private async Task<byte[]> AppendSubReportsAsync(
-        List<SubReportConfig> subReports, byte[] mainBytes, string mainSheet, JToken rootToken, CancellationToken cancellationToken)
+        List<SubReportConfig> subReports, byte[] mainBytes, string mainSheet, int mainContentMaxRow,
+        JToken rootToken, CancellationToken cancellationToken)
     {
         using var accumulatorStream = new MemoryStream();
         accumulatorStream.Write(mainBytes, 0, mainBytes.Length);
@@ -298,7 +321,7 @@ public class ReportEngine : IReportEngine
 
         using (var accumulatorDoc = SpreadsheetDocument.Open(accumulatorStream, true))
         {
-            var currentMaxRow = GetMaxRowIndex(accumulatorDoc, _scanner, mainSheet);
+            var currentMaxRow = mainContentMaxRow;
 
             foreach (var subReport in subReports)
             {
@@ -318,12 +341,84 @@ public class ReportEngine : IReportEngine
                         renderedBytes = await EmbedImagesAsync(renderedBytes, subReport.Mapping.Images, imageValues, cancellationToken);
                     }
 
-                    currentMaxRow = AppendAllRows(accumulatorDoc, _scanner, mainSheet, renderedBytes, subReport.TemplateSheet, currentMaxRow);
+                    currentMaxRow = AppendAllRows(
+                        accumulatorDoc, _scanner, mainSheet, renderedBytes, subReport.TemplateSheet, currentMaxRow);
                 }
             }
         }
 
         return accumulatorStream.ToArray();
+    }
+
+    /// <summary>套版後，若範本放了保留標記 {{__end__}}，就把標記那一列（含）之後的列整個刪掉，
+    /// 回傳刪節過的檔案內容跟保留下來的最後一列列號；範本沒放標記則原樣回傳，最後一列改用掃到的
+    /// 最大 RowIndex（可能含只有格式、沒內容的殘留空列，是舊行為的 fallback）。一定要在套版
+    /// 「之後」找標記的位置，不能沿用套版前掃描範本時的列號——標記前面如果有 {{items.xxx}} 這種
+    /// 集合欄位，套版時會依資料筆數展開成多列，標記實際落點的列號會跟著往下位移，套版前掃到的
+    /// 列號用來切列的話會把展開出來、位移到標記舊列號之後的那些列一起誤砍掉（迴圈被截斷）。</summary>
+    private static (byte[] Bytes, int MaxRow) TrimMainReportTail(IReportTemplateScanner scanner, byte[] renderedBytes, string? sheet)
+    {
+        using var stream = new MemoryStream();
+        stream.Write(renderedBytes, 0, renderedBytes.Length);
+        stream.Position = 0;
+
+        int maxRow;
+        using (var document = SpreadsheetDocument.Open(stream, true))
+        {
+            var worksheetPart = scanner.GetTargetWorksheetPart(document.WorkbookPart!, sheet);
+            var sharedStrings = document.WorkbookPart!.GetPartsOfType<SharedStringTablePart>().FirstOrDefault();
+            var markerRow = FindMarkerRow(worksheetPart, sharedStrings, EndMarkerName);
+
+            if (markerRow is { } row)
+            {
+                TrimTrailingRowsInWorksheet(worksheetPart, row - 1);
+                maxRow = row - 1;
+            }
+            else
+            {
+                maxRow = GetMaxRowIndexInWorksheet(worksheetPart);
+            }
+        }
+
+        return (stream.ToArray(), maxRow);
+    }
+
+    /// <summary>在整份工作表裡找內容剛好等於 markerText 的儲存格，回傳它所在的 1-based 列號；
+    /// 找不到就回傳 null。用來在套版「之後」的渲染結果裡定位 {{__end__}} 標記實際落點（見
+    /// TrimMainReportTail 的說明），子報表每一筆的 AppendAllRows 也用同一個方法，理由相同。</summary>
+    private static int? FindMarkerRow(WorksheetPart worksheetPart, SharedStringTablePart? sharedStrings, string markerText)
+    {
+        foreach (var cell in worksheetPart.Worksheet.Descendants<Cell>())
+        {
+            if (GetCellText(cell, sharedStrings) != markerText) continue;
+            if (cell.CellReference?.Value == null) continue;
+            var (_, row) = ParseCellReferenceParts(cell.CellReference.Value);
+            return row;
+        }
+        return null;
+    }
+
+    /// <summary>刪掉 keepUpToRow 之後既有的列，讓後續接續的新列可以從 keepUpToRow 開始重新編號，
+    /// 不會跟殘留的格式空列撞號（同一份 sheetData 裡出現兩個一樣的 RowIndex 是不合法的 OOXML）。</summary>
+    private static void TrimTrailingRowsInWorksheet(WorksheetPart worksheetPart, int keepUpToRow)
+    {
+        var sheetData = worksheetPart.Worksheet.GetFirstChild<SheetData>();
+        if (sheetData == null) return;
+
+        var rowsToRemove = sheetData.Elements<Row>()
+            .Where(r => r.RowIndex is not null && r.RowIndex.Value > keepUpToRow)
+            .ToList();
+        if (rowsToRemove.Count == 0) return;
+
+        foreach (var row in rowsToRemove) row.Remove();
+        worksheetPart.Worksheet.Save();
+    }
+
+    private static int GetMaxRowIndexInWorksheet(WorksheetPart worksheetPart)
+    {
+        var sheetData = worksheetPart.Worksheet.GetFirstChild<SheetData>();
+        var rows = sheetData?.Elements<Row>().ToList() ?? new List<Row>();
+        return rows.Count == 0 ? 0 : (int)rows.Max(r => r.RowIndex?.Value ?? 0);
     }
 
     /// <summary>依標準 JSONPath 語意解析子報表的根節點：查到幾個節點就回傳幾個，每個節點各對應
@@ -345,21 +440,15 @@ public class ReportEngine : IReportEngine
         }
     }
 
-    private static int GetMaxRowIndex(SpreadsheetDocument document, IReportTemplateScanner scanner, string? sheet)
-    {
-        var worksheetPart = scanner.GetTargetWorksheetPart(document.WorkbookPart!, sheet);
-        var sheetData = worksheetPart.Worksheet.GetFirstChild<SheetData>();
-        var rows = sheetData?.Elements<Row>().ToList() ?? new List<Row>();
-        return rows.Count == 0 ? 0 : (int)rows.Max(r => r.RowIndex?.Value ?? 0);
-    }
-
     /// <summary>把 sourceBytes（某個子報表的完整渲染結果）的所有列（含合併儲存格範圍），依
     /// offset 平移列號後接到 accumulatorDoc 目前的工作表後面。子報表是獨立的 xlsx 檔，不像
     /// 主報表混雜固定欄位，所以整份檔案的每一列都屬於要接上去的內容，不需要另外切出範圍。
     /// accumulatorSheet 是主報表自己選的工作表(整個拼接過程中固定不變)，sourceSheet 是這個
     /// 子報表自己選的工作表，兩者可能不同。主報表與子報表用各自獨立的範本渲染，styles.xml/
     /// sharedStrings 彼此獨立；文字一律轉成 inlineStr，避免要處理「兩邊各自獨立的 sharedStrings
-    /// 索引對不上」的問題。</summary>
+    /// 索引對不上」的問題。sourceBytes 是這一筆資料套版「之後」的結果，所以在這裡（而不是外面
+    /// 套版前的 subScanResult）現找 {{__end__}} 標記位置，才能吃到集合欄位展開列數之後的正確
+    /// 落點——同一份子範本，不同筆資料的 items 數量不同，標記實際落在第幾列也會不一樣。</summary>
     private static int AppendAllRows(
         SpreadsheetDocument accumulatorDoc, IReportTemplateScanner scanner, string? accumulatorSheet,
         byte[] sourceBytes, string? sourceSheet, int currentMaxRow)
@@ -374,9 +463,13 @@ public class ReportEngine : IReportEngine
         var sourceSheetPart = scanner.GetTargetWorksheetPart(sourceWorkbookPart, sourceSheet);
         var sourceSharedStrings = sourceWorkbookPart.GetPartsOfType<SharedStringTablePart>().FirstOrDefault();
         var sourceSheetData = sourceSheetPart.Worksheet.GetFirstChild<SheetData>();
+        var sourceEndMarkerRow = FindMarkerRow(sourceSheetPart, sourceSharedStrings, EndMarkerName);
 
+        // 有 {{__end__}} 標記時，標記那一列（含）之後都不算內容，只接續到標記前一列為止，範本
+        // 作者留在後面的格式空列不隨每一筆子報表資料重複貼上；沒有標記時維持舊行為，整份子範本照抄。
         var rowsToCopy = (sourceSheetData?.Elements<Row>() ?? Enumerable.Empty<Row>())
             .Where(r => r.RowIndex is not null)
+            .Where(r => sourceEndMarkerRow is null || r.RowIndex!.Value < sourceEndMarkerRow.Value)
             .OrderBy(r => r.RowIndex!.Value)
             .ToList();
 
@@ -441,6 +534,7 @@ public class ReportEngine : IReportEngine
             {
                 var (startRef, endRef) = SplitMergeRange(mc.Reference!.Value!);
                 var (startCol, startRow) = ParseCellReferenceParts(startRef);
+                if (sourceEndMarkerRow is { } endMarkerRow && startRow >= endMarkerRow) continue;
                 var (endCol, endRow) = ParseCellReferenceParts(endRef);
                 accumulatorMergeCells.Append(new MergeCell { Reference = $"{startCol}{startRow + offset}:{endCol}{endRow + offset}" });
             }
