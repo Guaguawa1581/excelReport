@@ -1,7 +1,8 @@
 {
-  "code": "SupplierIns_COPY",
+  "logId": "4f6e6003-08eb-46cd-8ef9-acd88975c048",
+  "code": "SupplierIns_MAX",
   "name": "外檢報表 max",
-  "templateFile": "檢驗temp_main.xlsx",
+  "templateFile": "檢驗template.xlsx",
   "templateSheet": "0",
   "dataSource": {
     "type": "paste",
@@ -14,26 +15,34 @@
   "parameters": [],
   "mapping": {
     "root": "$.records[0]",
-    "fields": {
-      "woNo": "$.workOrderNo"
-    },
+    "fields": {},
     "collections": [],
     "images": {}
   },
   "subReports": [
     {
-      "templateFile": "檢驗temp_sub.xlsx",
-      "templateSheet": "0",
-      "parentPath": "$.tasks",
-      "parentCollectionName": "tasks",
-      "parentColumns": {},
-      "childPath": "$.items",
-      "childCollectionName": "items",
-      "childColumns": {},
-      "childSpread": {
-        "from": "measuredValue",
-        "prefix": "v",
-        "max": 13
+      "templateFile": "檢驗template.xlsx",
+      "templateSheet": "1",
+      "root": "$.tasks[*]",
+      "mapping": {
+        "root": "$",
+        "fields": {},
+        "collections": [
+          {
+            "name": "items",
+            "path": "$.items[*]",
+            "columns": {
+              "vvValue": "$.stdValue"
+            },
+            "spread": {
+              "from": "$.samples[*]",
+              "property": "$.result",
+              "prefix": "v",
+              "max": 13
+            }
+          }
+        ],
+        "images": {}
       }
     }
   ]

@@ -24,8 +24,8 @@
         <div class="card-body row g-3">
             <div class="col-md-4">
                 <label class="form-label">設定代碼 (code) *</label>
-                <input type="text" class="form-control" id="f-code" required @(Model.IsNew ? "" : "readonly") />
-                <div class="form-text">英數字與底線，作為檔名與識別代碼，例如 IPQC_EXT_INSPECT</div>
+                <input type="text" class="form-control" id="f-code" required />
+                <div class="form-text">英數字與底線，作為識別代碼與網址參數，例如 IPQC_EXT_INSPECT；可隨時修改，不影響既有設定內容。</div>
             </div>
             <div class="col-md-8">
                 <label class="form-label">報表名稱 *</label>
@@ -99,6 +99,10 @@
         <div class="card-body">
             <h6>範本檔案</h6>
             <div class="row g-3 align-items-end">
+                <div class="col-md-2">
+                    <label class="form-label">讀取的工作表</label>
+                    <select class="form-select" id="f-templateSheet"></select>
+                </div>
                 <div class="col-md-4">
                     <label class="form-label">選擇既有範本</label>
                     <select class="form-select" id="f-templateSelect">
@@ -112,10 +116,6 @@
                 <div class="col-md-4">
                     <label class="form-label">或上傳新範本 (.xlsx)</label>
                     <input type="file" class="form-control" id="f-templateUpload" accept=".xlsx" />
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">要讀取的工作表</label>
-                    <select class="form-select" id="f-templateSheet"></select>
                 </div>
                 <div class="col-md-2">
                     <span class="badge text-bg-info" id="templateFileBadge">尚未選擇</span>
@@ -158,10 +158,13 @@
         <div class="card-header">子報表（產生報表時依序接在主報表後面）</div>
         <div class="card-body">
             <div class="text-muted small mb-3">
-                每個子報表是獨立的一份 xlsx 範本（例如 tasks[].items[] 這種巢狀資料的「一個 task 一個表頭 + 明細列」區塊）。
-                產生報表時，會對「父層陣列」的每一個元素各自渲染一次整份子範本、依序接在主報表（以及前一個子報表）後面，
-                子範本內要有兩個集合標記：父層集合（例如 <code>{{tasks.xxx}}</code>，每次渲染剛好展開一列當表頭）與
-                子層集合（例如 <code>{{items.xxx}}</code>，展開該父層元素底下的明細列）。
+                每個子報表是獨立的一份 xlsx 範本，綁定一個「根節點路徑」（標準 JSONPath，相對主報表 root）。
+                查到幾個節點，就對每個節點各自渲染一次整份子範本、依序接在主報表（以及前一個子報表）後面：
+                帶萬用字元的路徑（例如 <code>$.tasks[*]</code>）查到多個節點 = 逐一迴圈渲染；不帶萬用字元的路徑
+                （例如 <code>$</code>、<code>$.data</code>、<code>$.records[0]</code>）查到單一節點 = 只渲染一次。
+                子範本內的標記語法跟主報表完全一致，都相對每次渲染當下查到的節點解析：一般欄位
+                <code>{{field}}</code>、集合欄位 <code>{{collection.column}}</code>（可以有多個、各自可搭配
+                spread 攤平設定）、圖片 <code>[[field]]</code>。
             </div>
             <div id="subReportsArea"></div>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="addSubReportBtn">+ 新增子報表</button>
@@ -276,8 +279,7 @@
             view.innerHTML = html;
         }
 
-        function renderFieldMapping(scan, existingFields) {
-            const body = document.getElementById('fieldMappingBody');
+        function renderFieldMapping(body, scan, existingFields) {
             body.innerHTML = '';
             (scan?.fields || []).forEach(f => {
                 const existing = existingFields && existingFields[f];
@@ -300,70 +302,63 @@
             return !isNaN(n) && n >= 1 && n <= (spread.max || 0);
         }
 
-        function renderCollectionMapping(scan, existingCollections) {
-            const area = document.getElementById('collectionMappingArea');
+        /// 畫一個集合設定框（陣列來源路徑 + spread 攤平設定 + 逐欄位映射表）。主報表集合區塊跟
+        /// 子報表的子層集合區塊共用這個函式與同一批 class name（.collection-box 等），呼叫端記得
+        /// 用容器把 querySelectorAll 的範圍限定住，避免撈到不同區塊的框。
+        function buildCollectionBox(collectionScan, existing) {
+            existing = existing || {};
+            const existingSpread = existing.spread || { from: '$.values', property: '', prefix: 'v', max: 13 };
+
+            const box = el('div', 'border rounded p-3 mb-3 collection-box');
+            box.dataset.name = collectionScan.name;
+            box.appendChild(el('h6', '', '集合：' + collectionScan.name));
+
+            const pathRow = el('div', 'row g-2 mb-2');
+            const pathCol = el('div', 'col-md-6');
+            pathCol.appendChild(el('label', 'form-label small', '陣列來源路徑 (path)'));
+            const pathInput = el('input', 'form-control collection-path'); pathInput.value = existing.path || '';
+            pathInput.placeholder = '$.details';
+            pathCol.appendChild(pathInput);
+            pathRow.appendChild(pathCol);
+            box.appendChild(pathRow);
+
+            const spreadRow = el('div', 'row g-2 mb-2');
+            const s1 = el('div', 'col-md-3'); s1.appendChild(el('label', 'form-label small', 'spread 陣列來源路徑 (相對於每筆項目)'));
+            const spreadFrom = el('input', 'form-control spread-from'); spreadFrom.value = existingSpread.from || ''; spreadFrom.placeholder = '$.values';
+            s1.appendChild(spreadFrom);
+            const s2 = el('div', 'col-md-3'); s2.appendChild(el('label', 'form-label small', '屬性 JSONPath (property，選填)'));
+            const spreadProperty = el('input', 'form-control spread-property'); spreadProperty.value = existingSpread.property || ''; spreadProperty.placeholder = '陣列元素為物件時，取用屬性的 JSONPath（root 是 spread 陣列來源的每個元素），如 $.result';
+            s2.appendChild(spreadProperty);
+            const s3 = el('div', 'col-md-3'); s3.appendChild(el('label', 'form-label small', '欄位前綴 (prefix)'));
+            const spreadPrefix = el('input', 'form-control spread-prefix'); spreadPrefix.value = existingSpread.prefix || 'v';
+            s3.appendChild(spreadPrefix);
+            const s4 = el('div', 'col-md-3'); s4.appendChild(el('label', 'form-label small', '最大欄數 (max)'));
+            const spreadMax = el('input', 'form-control spread-max'); spreadMax.type = 'number'; spreadMax.value = existingSpread.max || 13;
+            s4.appendChild(spreadMax);
+            [s1, s2, s3, s4].forEach(x => spreadRow.appendChild(x));
+            box.appendChild(spreadRow);
+
+            const colTable = el('table', 'table table-sm');
+            const thead = el('thead', '', '<tr><th style="width:220px">範本標記</th><th>JSONPath（相對於每筆項目，留空預設用標記名稱）</th></tr>');
+            const tbody = el('tbody');
+            colTable.appendChild(thead); colTable.appendChild(tbody);
+            box.appendChild(colTable);
+
+            function renderColumns() {
+                const spreadGetter = () => ({ prefix: spreadPrefix.value, max: parseInt(spreadMax.value, 10) || 0 });
+                buildMappingRows(tbody, collectionScan.columns, existing.columns, collectionScan.name, spreadGetter, 'collection-column-input');
+            }
+            renderColumns();
+            [spreadPrefix, spreadMax].forEach(i => i.addEventListener('input', renderColumns));
+
+            return box;
+        }
+
+        function renderCollectionMapping(area, scan, existingCollections) {
             area.innerHTML = '';
             (scan?.collections || []).forEach(c => {
                 const existing = (existingCollections || []).find(ec => ec.name === c.name) || {};
-                const existingSpread = existing.spread || { from: '$.values', prefix: 'v', max: 13 };
-
-                const box = el('div', 'border rounded p-3 mb-3 collection-box');
-                box.dataset.name = c.name;
-                box.appendChild(el('h6', '', '集合：' + c.name));
-
-                const pathRow = el('div', 'row g-2 mb-2');
-                const pathCol = el('div', 'col-md-6');
-                pathCol.appendChild(el('label', 'form-label small', '陣列來源路徑 (path)'));
-                const pathInput = el('input', 'form-control collection-path'); pathInput.value = existing.path || '';
-                pathInput.placeholder = '$.details';
-                pathCol.appendChild(pathInput);
-                pathRow.appendChild(pathCol);
-                box.appendChild(pathRow);
-
-                const spreadRow = el('div', 'row g-2 mb-2');
-                const s1 = el('div', 'col-md-4'); s1.appendChild(el('label', 'form-label small', 'spread 陣列來源路徑 (相對於每筆項目)'));
-                const spreadFrom = el('input', 'form-control spread-from'); spreadFrom.value = existingSpread.from || ''; spreadFrom.placeholder = '$.values';
-                s1.appendChild(spreadFrom);
-                const s2 = el('div', 'col-md-3'); s2.appendChild(el('label', 'form-label small', '欄位前綴 (prefix)'));
-                const spreadPrefix = el('input', 'form-control spread-prefix'); spreadPrefix.value = existingSpread.prefix || 'v';
-                s2.appendChild(spreadPrefix);
-                const s3 = el('div', 'col-md-3'); s3.appendChild(el('label', 'form-label small', '最大欄數 (max)'));
-                const spreadMax = el('input', 'form-control spread-max'); spreadMax.type = 'number'; spreadMax.value = existingSpread.max || 13;
-                s3.appendChild(spreadMax);
-                [s1, s2, s3].forEach(x => spreadRow.appendChild(x));
-                box.appendChild(spreadRow);
-
-                const colTable = el('table', 'table table-sm');
-                const thead = el('thead', '', '<tr><th style="width:220px">範本標記</th><th>JSONPath（相對於每筆項目，留空預設用標記名稱）</th></tr>');
-                const tbody = el('tbody');
-                colTable.appendChild(thead); colTable.appendChild(tbody);
-                box.appendChild(colTable);
-
-                function renderColumns() {
-                    tbody.innerHTML = '';
-                    const spread = { prefix: spreadPrefix.value, max: parseInt(spreadMax.value, 10) || 0 };
-                    c.columns.forEach(col => {
-                        const covered = isSpreadCovered(col, spread);
-                        const existingCol = existing.columns && existing.columns[col];
-                        const tr = el('tr');
-                        const td1 = el('td'); td1.innerHTML = markerHtml(c.name + '.' + col);
-                        const td2 = el('td');
-                        if (covered) {
-                            td2.innerHTML = '<span class="text-muted small">由 spread 設定自動產生，無需個別映射</span>';
-                        } else {
-                            const input = el('input', 'form-control collection-column-input'); input.dataset.column = col;
-                            input.value = existingCol || '';
-                            input.placeholder = '$.' + col;
-                            td2.appendChild(input);
-                        }
-                        tr.appendChild(td1); tr.appendChild(td2);
-                        tbody.appendChild(tr);
-                    });
-                }
-                renderColumns();
-                [spreadPrefix, spreadMax].forEach(i => i.addEventListener('input', renderColumns));
-
-                area.appendChild(box);
+                area.appendChild(buildCollectionBox(c, existing));
             });
         }
 
@@ -378,8 +373,7 @@
             return select;
         }
 
-        function renderImageMapping(scan, existingImages) {
-            const body = document.getElementById('imageMappingBody');
+        function renderImageMapping(body, scan, existingImages) {
             body.innerHTML = '';
             (scan?.imageFields || []).forEach(f => {
                 const existing = existingImages && existingImages[f];
@@ -410,9 +404,9 @@
         function applyScanResult(scan, existingMapping) {
             currentScanResult = scan;
             renderScanResult(scan);
-            renderFieldMapping(scan, existingMapping?.fields);
-            renderCollectionMapping(scan, existingMapping?.collections);
-            renderImageMapping(scan, existingMapping?.images);
+            renderFieldMapping(document.getElementById('fieldMappingBody'), scan, existingMapping?.fields);
+            renderCollectionMapping(document.getElementById('collectionMappingArea'), scan, existingMapping?.collections);
+            renderImageMapping(document.getElementById('imageMappingBody'), scan, existingMapping?.images);
         }
 
         // ---------- Sub reports ----------
@@ -439,108 +433,61 @@
             });
         }
 
+        /// 子報表的映射設定區塊：一個「根節點路徑」輸入框 + 跟主報表完全一樣的三段映射
+        /// （一般欄位 / 集合欄位 / 圖片欄位），共用 renderFieldMapping/renderCollectionMapping/
+        /// renderImageMapping，資料相對每次渲染當下查到的節點解析。
         function renderSubReportMapping(area, scan, existing) {
             area.innerHTML = '';
-            const collections = (scan && scan.collections) || [];
-            if (collections.length === 0) {
-                area.innerHTML = '<div class="text-muted small">此範本內找不到集合標記（例如 <code>{{tasks.xxx}}</code>），至少需要父層與子層兩個集合。</div>';
-                return;
-            }
 
-            function defaultPath(name) { return name ? '$.' + name : ''; }
+            const rootRow = el('div', 'row g-3 mb-3');
+            const rootCol = el('div', 'col-md-8');
+            rootCol.appendChild(el('label', 'form-label small', '根節點路徑（標準 JSONPath，相對主報表 root）'));
+            const rootInput = el('input', 'form-control sr-root'); rootInput.value = existing.root || '';
+            rootInput.placeholder = '$.tasks[*]';
+            rootCol.appendChild(rootInput);
+            rootCol.appendChild(el('div', 'form-text',
+                '查到幾個節點就渲染幾次：帶萬用字元的路徑（例如 <code>$.tasks[*]</code>）查到多個節點 = 逐一迴圈渲染、依序往下接；' +
+                '不帶萬用字元的路徑（例如 <code>$</code>、<code>$.data</code>、<code>$.records[0]</code>）查到單一節點 = 只渲染一次。'));
+            rootRow.appendChild(rootCol);
+            area.appendChild(rootRow);
 
-            const selectorRow = el('div', 'row g-3 mb-2');
-            const pCol = el('div', 'col-md-6');
-            pCol.appendChild(el('label', 'form-label small', '父層集合（表頭，每次渲染只展開一列）'));
-            const parentSelect = el('select', 'form-select sr-parent-collection');
-            collections.forEach(c => { const o = el('option', '', c.name); o.value = c.name; parentSelect.appendChild(o); });
-            pCol.appendChild(parentSelect);
-            const cCol = el('div', 'col-md-6');
-            cCol.appendChild(el('label', 'form-label small', '子層集合（明細列）'));
-            const childSelect = el('select', 'form-select sr-child-collection');
-            collections.forEach(c => { const o = el('option', '', c.name); o.value = c.name; childSelect.appendChild(o); });
-            cCol.appendChild(childSelect);
-            parentSelect.value = existing.parentCollectionName || collections[0].name;
-            childSelect.value = existing.childCollectionName || (collections[1] ? collections[1].name : collections[0].name);
-            selectorRow.appendChild(pCol); selectorRow.appendChild(cCol);
-            area.appendChild(selectorRow);
+            const existingMapping = existing.mapping || {};
 
-            const pathRow = el('div', 'row g-3 mb-2');
-            const ppCol = el('div', 'col-md-6');
-            ppCol.appendChild(el('label', 'form-label small', '父層陣列路徑（相對 root）'));
-            const parentPathInput = el('input', 'form-control sr-parent-path');
-            ppCol.appendChild(parentPathInput);
-            const cpCol = el('div', 'col-md-6');
-            cpCol.appendChild(el('label', 'form-label small', '子層陣列路徑（相對每個父層元素）'));
-            const childPathInput = el('input', 'form-control sr-child-path');
-            cpCol.appendChild(childPathInput);
-            pathRow.appendChild(ppCol); pathRow.appendChild(cpCol);
-            area.appendChild(pathRow);
+            area.appendChild(el('h6', 'mt-2', '一般欄位（相對每次渲染當下的節點）'));
+            const fieldTable = el('table', 'table table-sm');
+            fieldTable.appendChild(el('thead', '', '<tr><th style="width:220px">範本標記</th><th>JSONPath（留空預設用標記名稱）</th></tr>'));
+            const fieldBody = el('tbody', 'sr-field-body');
+            fieldTable.appendChild(fieldBody);
+            area.appendChild(fieldTable);
+            renderFieldMapping(fieldBody, scan, existingMapping.fields);
 
-            parentPathInput.value = existing.parentPath || defaultPath(parentSelect.value);
-            childPathInput.value = existing.childPath || defaultPath(childSelect.value);
+            area.appendChild(el('h6', 'mt-3', '集合欄位'));
+            const collectionArea = el('div', 'sr-collection-area');
+            area.appendChild(collectionArea);
+            renderCollectionMapping(collectionArea, scan, existingMapping.collections);
 
-            const parentTableWrap = el('div');
-            parentTableWrap.appendChild(el('h6', 'mt-2', '父層欄位（相對每個父層元素）'));
-            const parentTable = el('table', 'table table-sm');
-            parentTable.appendChild(el('thead', '', '<tr><th style="width:220px">範本標記</th><th>JSONPath（留空預設用標記名稱）</th></tr>'));
-            const parentTbody = el('tbody');
-            parentTable.appendChild(parentTbody);
-            parentTableWrap.appendChild(parentTable);
-            area.appendChild(parentTableWrap);
-
-            const spreadRow = el('div', 'row g-2 mb-2');
-            const s1 = el('div', 'col-md-4'); s1.appendChild(el('label', 'form-label small', '子層 spread 陣列來源路徑（相對每筆子層元素）'));
-            const spreadFrom = el('input', 'form-control sr-spread-from'); spreadFrom.placeholder = '$.samples[*].measuredValue';
-            s1.appendChild(spreadFrom);
-            const s2 = el('div', 'col-md-3'); s2.appendChild(el('label', 'form-label small', '欄位前綴 (prefix)'));
-            const spreadPrefix = el('input', 'form-control sr-spread-prefix');
-            s2.appendChild(spreadPrefix);
-            const s3 = el('div', 'col-md-3'); s3.appendChild(el('label', 'form-label small', '最大欄數 (max)'));
-            const spreadMax = el('input', 'form-control sr-spread-max'); spreadMax.type = 'number';
-            s3.appendChild(spreadMax);
-            [s1, s2, s3].forEach(x => spreadRow.appendChild(x));
-
-            const existingSpread = existing.childSpread || {};
-            spreadFrom.value = existingSpread.from || '';
-            spreadPrefix.value = existingSpread.prefix || 'v';
-            spreadMax.value = existingSpread.max || 13;
-
-            const childTableWrap = el('div');
-            childTableWrap.appendChild(el('h6', 'mt-3', '子層欄位（相對每個子層元素）'));
-            childTableWrap.appendChild(spreadRow);
-            const childTable = el('table', 'table table-sm');
-            childTable.appendChild(el('thead', '', '<tr><th style="width:220px">範本標記</th><th>JSONPath（留空預設用標記名稱）</th></tr>'));
-            const childTbody = el('tbody');
-            childTable.appendChild(childTbody);
-            childTableWrap.appendChild(childTable);
-            area.appendChild(childTableWrap);
-
-            function renderParentColumns() {
-                const cols = (collections.find(c => c.name === parentSelect.value) || {}).columns || [];
-                buildMappingRows(parentTbody, cols, existing.parentColumns, parentSelect.value, null, 'sr-parent-column-input');
-            }
-            function renderChildColumns() {
-                const cols = (collections.find(c => c.name === childSelect.value) || {}).columns || [];
-                const spreadGetter = () => ({ prefix: spreadPrefix.value, max: parseInt(spreadMax.value, 10) || 0 });
-                buildMappingRows(childTbody, cols, existing.childColumns, childSelect.value, spreadGetter, 'sr-child-column-input');
-            }
-
-            parentSelect.addEventListener('change', () => { parentPathInput.value = defaultPath(parentSelect.value); renderParentColumns(); });
-            childSelect.addEventListener('change', () => { childPathInput.value = defaultPath(childSelect.value); renderChildColumns(); });
-            [spreadPrefix, spreadMax].forEach(i => i.addEventListener('input', renderChildColumns));
-
-            renderParentColumns();
-            renderChildColumns();
+            area.appendChild(el('h6', 'mt-3', '圖片欄位'));
+            const imageTable = el('table', 'table table-sm');
+            imageTable.appendChild(el('thead', '', '<tr><th style="width:220px">範本標記</th><th>JSONPath</th><th style="width:140px">來源型別</th></tr>'));
+            const imageBody = el('tbody', 'sr-image-body');
+            imageTable.appendChild(imageBody);
+            area.appendChild(imageTable);
+            renderImageMapping(imageBody, scan, existingMapping.images);
         }
 
         function createSubReportCard(existing) {
             existing = existing || {};
             const card = el('div', 'border rounded p-3 mb-3 subreport-card');
 
+            // 欄位順序跟主報表的「範本檔案」區塊一致：讀取的工作表 > 選擇既有範本 > 上傳新範本。
             const headerRow = el('div', 'row g-3 align-items-end mb-2');
-            const c1 = el('div', 'col-md-3');
-            c1.appendChild(el('label', 'form-label', '選擇既有範本'));
+            const c1 = el('div', 'col-md-2');
+            c1.appendChild(el('label', 'form-label', '要讀取的工作表'));
+            const sheetSelect = el('select', 'form-select sr-template-sheet');
+            c1.appendChild(sheetSelect);
+
+            const c2 = el('div', 'col-md-3');
+            c2.appendChild(el('label', 'form-label', '選擇既有範本'));
             const select = el('select', 'form-select sr-template-select');
             select.appendChild(el('option', '', '-- 請選擇 --'));
             availableTemplates.forEach(t => {
@@ -548,17 +495,12 @@
                 if (existing.templateFile === t) o.selected = true;
                 select.appendChild(o);
             });
-            c1.appendChild(select);
+            c2.appendChild(select);
 
-            const c2 = el('div', 'col-md-3');
-            c2.appendChild(el('label', 'form-label', '或上傳新範本 (.xlsx)'));
+            const c3 = el('div', 'col-md-3');
+            c3.appendChild(el('label', 'form-label', '或上傳新範本 (.xlsx)'));
             const upload = el('input', 'form-control sr-template-upload'); upload.type = 'file'; upload.accept = '.xlsx';
-            c2.appendChild(upload);
-
-            const c3 = el('div', 'col-md-2');
-            c3.appendChild(el('label', 'form-label', '要讀取的工作表'));
-            const sheetSelect = el('select', 'form-select sr-template-sheet');
-            c3.appendChild(sheetSelect);
+            c3.appendChild(upload);
 
             const c4 = el('div', 'col-md-3');
             c4.appendChild(el('label', 'form-label d-block', '&nbsp;'));
@@ -645,29 +587,40 @@
 
         function getSubReports() {
             return Array.from(document.querySelectorAll('.subreport-card')).map(card => {
-                const parentColumns = {};
-                card.querySelectorAll('.sr-parent-column-input').forEach(i => { if (i.value.trim()) parentColumns[i.dataset.column] = i.value.trim(); });
-                const childColumns = {};
-                card.querySelectorAll('.sr-child-column-input').forEach(i => { if (i.value.trim()) childColumns[i.dataset.column] = i.value.trim(); });
-                const spreadFrom = card.querySelector('.sr-spread-from');
-                const parentSelect = card.querySelector('.sr-parent-collection');
-                const childSelect = card.querySelector('.sr-child-collection');
-                const parentPath = card.querySelector('.sr-parent-path');
-                const childPath = card.querySelector('.sr-child-path');
+                const fields = {};
+                card.querySelectorAll('.sr-field-body .field-mapping-input').forEach(i => { if (i.value.trim()) fields[i.dataset.field] = i.value.trim(); });
+
+                const collectionArea = card.querySelector('.sr-collection-area');
+                const collections = collectionArea ? Array.from(collectionArea.querySelectorAll('.collection-box')).map(box => {
+                    const columns = {};
+                    box.querySelectorAll('.collection-column-input').forEach(i => { if (i.value.trim()) columns[i.dataset.column] = i.value.trim(); });
+                    return {
+                        name: box.dataset.name,
+                        path: box.querySelector('.collection-path').value.trim(),
+                        columns: columns,
+                        spread: {
+                            from: box.querySelector('.spread-from').value.trim(),
+                            property: box.querySelector('.spread-property').value.trim(),
+                            prefix: box.querySelector('.spread-prefix').value.trim(),
+                            max: parseInt(box.querySelector('.spread-max').value, 10) || 0
+                        }
+                    };
+                }) : [];
+
+                const images = {};
+                card.querySelectorAll('.sr-image-body .image-mapping-input').forEach(i => {
+                    if (!i.value.trim()) return;
+                    const typeSelect = card.querySelector('.sr-image-body .image-mapping-type[data-field="' + i.dataset.field + '"]');
+                    images[i.dataset.field] = { path: i.value.trim(), sourceType: typeSelect ? typeSelect.value : 'auto' };
+                });
+
+                const rootInput = card.querySelector('.sr-root');
+
                 return {
                     templateFile: card.querySelector('.sr-template-badge').textContent.trim(),
                     templateSheet: card.querySelector('.sr-template-sheet').value || '0',
-                    parentPath: parentPath ? parentPath.value.trim() : '',
-                    parentCollectionName: parentSelect ? parentSelect.value : '',
-                    parentColumns: parentColumns,
-                    childPath: childPath ? childPath.value.trim() : '',
-                    childCollectionName: childSelect ? childSelect.value : '',
-                    childColumns: childColumns,
-                    childSpread: spreadFrom ? {
-                        from: spreadFrom.value.trim(),
-                        prefix: card.querySelector('.sr-spread-prefix').value.trim(),
-                        max: parseInt(card.querySelector('.sr-spread-max').value, 10) || 0
-                    } : null
+                    root: rootInput ? rootInput.value.trim() : '',
+                    mapping: { root: '$', fields: fields, collections: collections, images: images }
                 };
             }).filter(sr => sr.templateFile && sr.templateFile !== '尚未選擇');
         }
@@ -792,12 +745,12 @@
             });
 
             const fields = {};
-            document.querySelectorAll('.field-mapping-input').forEach(i => {
+            document.querySelectorAll('#fieldMappingBody .field-mapping-input').forEach(i => {
                 if (!i.value.trim()) return;
                 fields[i.dataset.field] = i.value.trim();
             });
 
-            const collections = Array.from(document.querySelectorAll('.collection-box')).map(box => {
+            const collections = Array.from(document.querySelectorAll('#collectionMappingArea .collection-box')).map(box => {
                 const columns = {};
                 box.querySelectorAll('.collection-column-input').forEach(i => {
                     if (!i.value.trim()) return;
@@ -809,6 +762,7 @@
                     columns: columns,
                     spread: {
                         from: box.querySelector('.spread-from').value.trim(),
+                        property: box.querySelector('.spread-property').value.trim(),
                         prefix: box.querySelector('.spread-prefix').value.trim(),
                         max: parseInt(box.querySelector('.spread-max').value, 10) || 0
                     }
@@ -816,9 +770,9 @@
             });
 
             const images = {};
-            document.querySelectorAll('.image-mapping-input').forEach(i => {
+            document.querySelectorAll('#imageMappingBody .image-mapping-input').forEach(i => {
                 if (!i.value.trim()) return;
-                const typeSelect = document.querySelector('.image-mapping-type[data-field="' + i.dataset.field + '"]');
+                const typeSelect = document.querySelector('#imageMappingBody .image-mapping-type[data-field="' + i.dataset.field + '"]');
                 images[i.dataset.field] = { path: i.value.trim(), sourceType: typeSelect ? typeSelect.value : 'auto' };
             });
 
@@ -836,6 +790,7 @@
             }
 
             const config = {
+                logId: initialConfig.logId || '',
                 code: document.getElementById('f-code').value.trim(),
                 name: document.getElementById('f-name').value.trim(),
                 templateFile: window.__selectedTemplateFile || initialConfig.templateFile || '',
@@ -893,7 +848,7 @@
             const parms = initialConfig.parameters || [];
             if (parms.length > 0) {
                 parms.forEach(p => addParamRow(p.key, p.label, p.type, p.required));
-            } 
+            }
             // else {
             //     addParamRow('docNo', '單據號', 'string', true);
             // }

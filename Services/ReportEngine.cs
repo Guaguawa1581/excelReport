@@ -186,50 +186,38 @@ public class ReportEngine : IReportEngine
         foreach (var collectionScan in scanResult.Collections)
         {
             var collectionMapping = mapping.Collections.FirstOrDefault(c => c.Name == collectionScan.Name);
-            var collectionPath = EffectivePath(collectionScan.Name, collectionMapping?.Path);
-            var resolvedToken = rootToken.SelectToken(collectionPath);
-            var spread = collectionMapping?.Spread;
-
-            Dictionary<string, object> BuildRow(JToken item)
-            {
-                var row = new Dictionary<string, object> { [ReservedColumnName] = "" };
-                foreach (var columnKey in collectionScan.Columns)
-                {
-                    string? configuredColumnPath = null;
-                    collectionMapping?.Columns.TryGetValue(columnKey, out configuredColumnPath);
-                    var valueToken = item.SelectToken(EffectivePath(columnKey, configuredColumnPath));
-                    row[columnKey] = valueToken == null ? "" : TokenToValue(valueToken);
-                }
-
-                if (spread != null)
-                {
-                    ApplySpread(item, spread, row);
-                }
-
-                return row;
-            }
-
-            var rows = new List<IDictionary<string, object>>();
-            if (resolvedToken != null && resolvedToken.Type == JTokenType.Array)
-            {
-                // 陣列：逐筆展開成多列（迴圈渲染）。
-                foreach (var item in resolvedToken)
-                {
-                    rows.Add(BuildRow(item));
-                }
-            }
-            else if (resolvedToken != null && resolvedToken.Type == JTokenType.Object)
-            {
-                // 物件：包成只有一個元素的 list，重用同一條渲染路徑，MiniExcel 只會產生一列、
-                // 不迴圈——等同於「取用物件屬性值」。
-                rows.Add(BuildRow(resolvedToken));
-            }
-            // 找不到對應節點、或節點是純量卻寫成點記法：視為沒有明細列，不中斷報表產生。
-
-            data[collectionScan.Name] = rows;
+            data[collectionScan.Name] = BuildCollectionRows(
+                rootToken, collectionScan.Name, collectionMapping?.Path, collectionScan.Columns,
+                collectionMapping?.Columns ?? new Dictionary<string, string>(), collectionMapping?.Spread);
         }
 
         return data;
+    }
+
+    /// <summary>解析一個集合節點（相對 scopeToken）並依範本掃到的欄位建立資料列。用 SelectTokens
+    /// 依標準 JSONPath 語意解析路徑，同時接受兩種寫法：「$.items」這種指向陣列容器本身的路徑
+    /// （只查到一個 token、且該 token 是陣列）會展開其元素；「$.items[*]」這種帶萬用字元、直接
+    /// 查到多個元素的路徑，每個查到的 token 就各自是一列。找不到對應節點、或節點是純量卻寫成
+    /// 點記法，視為沒有明細列，不中斷報表產生。主報表 Collections 跟子報表 Collections 都共用
+    /// 這條路徑，行為完全一致；跟 ApplySpread 解析 From 用的是同一套「容器 vs 已展開」判斷邏輯。</summary>
+    private static List<IDictionary<string, object>> BuildCollectionRows(
+        JToken scopeToken, string name, string? configuredPath, List<string> columns,
+        Dictionary<string, string> configuredColumns, SpreadConfig? spread)
+    {
+        var tokens = scopeToken.SelectTokens(EffectivePath(name, configuredPath)).ToList();
+        var items = tokens.Count == 1 && tokens[0].Type == JTokenType.Array
+            ? tokens[0].ToList()
+            : tokens;
+
+        var rows = new List<IDictionary<string, object>>();
+        var index = 0;
+        foreach (var item in items)
+        {
+            rows.Add(BuildRowFromItem(columns, configuredColumns, item, index, spread));
+            index++;
+        }
+
+        return rows;
     }
 
     private static void ApplySpread(JToken item, SpreadConfig spread, Dictionary<string, object> row)
@@ -238,9 +226,15 @@ public class ReportEngine : IReportEngine
         // - "$.values" 這種指向單一陣列節點的路徑，會回傳「一個」token（該陣列本身），此時展開其元素；
         // - "$.samples[*].measuredValue" 這種帶萬用字元、跨多個節點取值的路徑，會直接回傳「多個」純量 token。
         var tokens = item.SelectTokens(spread.From).ToList();
-        var values = tokens.Count == 1 && tokens[0].Type == JTokenType.Array
-            ? tokens[0].Select(TokenToValue).ToList()
-            : tokens.Select(TokenToValue).ToList();
+        var elements = tokens.Count == 1 && tokens[0].Type == JTokenType.Array
+            ? tokens[0].ToList()
+            : tokens;
+
+        // Property 有填寫時，陣列元素視為物件，用標準 JSONPath 語法解析（root 是每個元素本身）
+        // 取其中的值當展開值；留空時維持舊行為，直接用元素本身的值。
+        var values = string.IsNullOrWhiteSpace(spread.Property)
+            ? elements.Select(TokenToValue).ToList()
+            : elements.Select(e => e.SelectToken(spread.Property) is { } t ? TokenToValue(t) : "").ToList();
 
         for (var i = 0; i < spread.Max; i++)
         {
@@ -259,9 +253,10 @@ public class ReportEngine : IReportEngine
     /// <summary>集合列欄位的保留字：自動填入該元素在陣列中的序號（從 1 開始），不走 JSONPath。</summary>
     private const string SeqColumnName = "seq";
 
-    /// <summary>建立巢狀子表其中一列（父層列或子層列共用）的資料。columns 是範本實際掃到的欄位
-    /// 名稱清單，configuredColumns 是設定檔裡「有填寫的話要用哪個 JSONPath」。</summary>
-    private static Dictionary<string, object> BuildNestedRow(
+    /// <summary>依範本掃到的欄位清單，用一個已知的 item（陣列元素或單一物件）建立一列資料。
+    /// columns 是範本實際掃到的欄位名稱清單，configuredColumns 是設定檔裡「有填寫的話要用哪個
+    /// JSONPath」。主報表 Collections、子報表父層列、子報表子層集合都共用這個建列邏輯。</summary>
+    private static Dictionary<string, object> BuildRowFromItem(
         List<string> columns, Dictionary<string, string> configuredColumns, JToken item, int index, SpreadConfig? spread)
     {
         var row = new Dictionary<string, object> { [ReservedColumnName] = "" };
@@ -288,12 +283,11 @@ public class ReportEngine : IReportEngine
 
     /// <summary>
     /// 依序渲染每個子報表、接在 mainBytes（主報表，或前一個子報表接完後的結果）後面。每個子報表
-    /// 都是獨立的 xlsx 範本檔，綁定一組父層/子層陣列（如 tasks[].items[]）：對父層陣列的每個
-    /// 元素各自渲染一次整份子範本（父層集合永遠只塞一筆，讓表頭列剛好展開一次；子層集合塞該
-    /// 父層底下全部元素），再把渲染結果整份的列取出來、往下平移列號後接到目前輸出的工作表後面。
-    /// 因為 MiniExcel 一個範本區域只能由一個集合驅動展開列數，沒辦法讓父層/子層列數在同一次
-    /// 渲染裡各自獨立變動，所以拆成獨立檔案逐一渲染再拼接，而不是用一般 Collections 那種
-    /// 單層攤平的路徑。
+    /// 都是獨立的 xlsx 範本檔，綁定一個根節點 JSONPath：用 SelectTokens 依標準 JSONPath 語意查到
+    /// 幾個節點，就對每個節點各自渲染一次整份子範本——該次渲染的 Fields/Collections/Images 都
+    /// 相對這個節點解析，直接重用主報表在用的 BuildDataDictionary/ResolveImages，用法完全比照
+    /// 主報表。再把每次渲染結果的列（含內嵌圖片）取出來、往下平移列號後接到目前輸出的工作表
+    /// 後面。
     /// </summary>
     private async Task<byte[]> AppendSubReportsAsync(
         List<SubReportConfig> subReports, byte[] mainBytes, string mainSheet, JToken rootToken, CancellationToken cancellationToken)
@@ -313,35 +307,42 @@ public class ReportEngine : IReportEngine
                 var subTemplateBytes = await LoadTemplateBytesAsync(subReport.TemplateFile);
                 var subScanResult = _scanner.Scan(subTemplateBytes, subReport.TemplateSheet);
 
-                var parentColumns = subScanResult.Collections.FirstOrDefault(c => c.Name == subReport.ParentCollectionName)?.Columns ?? new List<string>();
-                var childColumns = subScanResult.Collections.FirstOrDefault(c => c.Name == subReport.ChildCollectionName)?.Columns ?? new List<string>();
-
-                var parentTokens = (rootToken.SelectToken(subReport.ParentPath) as JArray)?.ToList() ?? new List<JToken>();
-
-                for (var i = 0; i < parentTokens.Count; i++)
+                foreach (var renderRoot in ResolveSubReportRoots(rootToken, subReport.Root))
                 {
-                    var parentToken = parentTokens[i];
-                    var childTokens = (parentToken.SelectToken(subReport.ChildPath) as JArray)?.ToList() ?? new List<JToken>();
-
-                    var data = new Dictionary<string, object>
-                    {
-                        [ReservedColumnName] = "",
-                        [subReport.ParentCollectionName] = new List<IDictionary<string, object>>
-                        {
-                            BuildNestedRow(parentColumns, subReport.ParentColumns, parentToken, i, spread: null)
-                        },
-                        [subReport.ChildCollectionName] = childTokens
-                            .Select((child, childIndex) => (IDictionary<string, object>)BuildNestedRow(childColumns, subReport.ChildColumns, child, childIndex, subReport.ChildSpread))
-                            .ToList()
-                    };
-
+                    var data = BuildDataDictionary(subReport.Mapping, subScanResult, renderRoot);
                     var renderedBytes = await RenderTemplateAsync(subTemplateBytes, data, cancellationToken);
+
+                    if (subReport.Mapping.Images.Count > 0)
+                    {
+                        var imageValues = ResolveImages(subReport.Mapping, renderRoot);
+                        renderedBytes = await EmbedImagesAsync(renderedBytes, subReport.Mapping.Images, imageValues, cancellationToken);
+                    }
+
                     currentMaxRow = AppendAllRows(accumulatorDoc, _scanner, mainSheet, renderedBytes, subReport.TemplateSheet, currentMaxRow);
                 }
             }
         }
 
         return accumulatorStream.ToArray();
+    }
+
+    /// <summary>依標準 JSONPath 語意解析子報表的根節點：查到幾個節點就回傳幾個，每個節點各對應
+    /// 一次渲染。帶萬用字元的路徑（如 "$.tasks[*]"）語意上查到多個節點；不帶萬用字元的路徑
+    /// （如 "$"、"$.data"、"$.records[0]"）語意上查到單一節點——都交給 SelectTokens 本身的
+    /// JSONPath 語意判斷，不做任何額外的字串層面判斷。路徑留空時視為 "$"，直接回傳 rootToken
+    /// 本身。</summary>
+    private static IEnumerable<JToken> ResolveSubReportRoots(JToken rootToken, string rootPath)
+    {
+        if (string.IsNullOrWhiteSpace(rootPath))
+        {
+            yield return rootToken;
+            yield break;
+        }
+
+        foreach (var token in rootToken.SelectTokens(rootPath))
+        {
+            yield return token;
+        }
     }
 
     private static int GetMaxRowIndex(SpreadsheetDocument document, IReportTemplateScanner scanner, string? sheet)
@@ -447,6 +448,8 @@ public class ReportEngine : IReportEngine
             accumulatorMergeCells.Count = (uint)accumulatorMergeCells.Elements<MergeCell>().Count();
         }
 
+        CopyDrawings(accumulatorSheetPart, sourceSheetPart, offset);
+
         var newMaxRow = rowsToCopy.Count > 0 ? (int)(rowsToCopy.Max(r => r.RowIndex!.Value) + offset) : currentMaxRow;
 
         var dimension = accumulatorSheetPart.Worksheet.GetFirstChild<SheetDimension>();
@@ -459,6 +462,37 @@ public class ReportEngine : IReportEngine
 
         accumulatorSheetPart.Worksheet.Save();
         return newMaxRow;
+    }
+
+    /// <summary>把 sourceSheetPart 裡已內嵌的圖片（子報表 Mapping.Images 對單次渲染出的獨立檔案
+    /// 呼叫 EmbedImagesAsync 內嵌好的圖片），依 offset 平移列號後複製到 accumulatorSheetPart。
+    /// xdr 的列/欄索引本身就是 0-based 的位移量，跟 Row/MergeCell 用的 1-based 列號一樣，直接
+    /// 加上 offset 位移即可，不需要額外轉換。</summary>
+    private static void CopyDrawings(WorksheetPart accumulatorSheetPart, WorksheetPart sourceSheetPart, int offset)
+    {
+        var sourceDrawingsPart = sourceSheetPart.DrawingsPart;
+        if (sourceDrawingsPart?.WorksheetDrawing == null) return;
+
+        foreach (var srcAnchor in sourceDrawingsPart.WorksheetDrawing.Elements<Xdr.OneCellAnchor>())
+        {
+            var blip = srcAnchor.Descendants<A.Blip>().FirstOrDefault();
+            var fromMarker = srcAnchor.FromMarker;
+            var extent = srcAnchor.Extent;
+            if (blip?.Embed?.Value == null || fromMarker?.ColumnId == null || fromMarker.RowId == null || extent == null) continue;
+
+            var srcImagePart = (ImagePart)sourceDrawingsPart.GetPartById(blip.Embed.Value);
+            using var imageStream = srcImagePart.GetStream();
+            using var buffer = new MemoryStream();
+            imageStream.CopyTo(buffer);
+            var imageBytes = buffer.ToArray();
+
+            var col = int.Parse(fromMarker.ColumnId.Text, CultureInfo.InvariantCulture);
+            var row = int.Parse(fromMarker.RowId.Text, CultureInfo.InvariantCulture) + offset;
+
+            InsertPicture(
+                accumulatorSheetPart, col, row, imageBytes, DetectImagePartType(imageBytes),
+                extent.Cx?.Value ?? ImageWidthEmu, extent.Cy?.Value ?? ImageHeightEmu);
+        }
     }
 
     private static string ResolveSharedStringText(Cell cell, SharedStringTablePart? sharedStrings)
@@ -654,6 +688,16 @@ public class ReportEngine : IReportEngine
 
     private static void InsertPicture(WorksheetPart worksheetPart, string cellReference, byte[] imageBytes)
     {
+        var (col, row) = ParseCellReference(cellReference);
+        InsertPicture(worksheetPart, col, row, imageBytes, DetectImagePartType(imageBytes), ImageWidthEmu, ImageHeightEmu);
+    }
+
+    /// <summary>把圖片以 OneCellAnchor 插入到工作表指定的 0-based (col,row) 位置。子報表列拼接
+    /// （CopyDrawings）跟一般的 [[field]] 圖片標記嵌入（上面的 cellReference 版本）共用這個核心
+    /// 邏輯，差別只在圖片來源尺寸/內容類型是否要沿用原圖，還是用固定的預設值。</summary>
+    private static void InsertPicture(
+        WorksheetPart worksheetPart, int col, int row, byte[] imageBytes, PartTypeInfo contentType, long widthEmu, long heightEmu)
+    {
         var drawingsPart = worksheetPart.DrawingsPart;
         Xdr.WorksheetDrawing worksheetDrawing;
         if (drawingsPart == null)
@@ -668,14 +712,13 @@ public class ReportEngine : IReportEngine
             worksheetDrawing = drawingsPart.WorksheetDrawing;
         }
 
-        var imagePart = drawingsPart.AddImagePart(DetectImagePartType(imageBytes));
+        var imagePart = drawingsPart.AddImagePart(contentType);
         using (var imageStream = new MemoryStream(imageBytes))
         {
             imagePart.FeedData(imageStream);
         }
         var imageRelId = drawingsPart.GetIdOfPart(imagePart);
 
-        var (col, row) = ParseCellReference(cellReference);
         var picId = (uint)(worksheetDrawing.Elements<Xdr.OneCellAnchor>().Count() + 1);
 
         var anchor = new Xdr.OneCellAnchor(
@@ -686,7 +729,7 @@ public class ReportEngine : IReportEngine
                 RowId = new Xdr.RowId(row.ToString()),
                 RowOffset = new Xdr.RowOffset("0")
             },
-            new Xdr.Extent { Cx = ImageWidthEmu, Cy = ImageHeightEmu },
+            new Xdr.Extent { Cx = widthEmu, Cy = heightEmu },
             new Xdr.Picture(
                 new Xdr.NonVisualPictureProperties(
                     new Xdr.NonVisualDrawingProperties { Id = picId, Name = $"Picture {picId}" },
@@ -697,7 +740,7 @@ public class ReportEngine : IReportEngine
                 new Xdr.ShapeProperties(
                     new A.Transform2D(
                         new A.Offset { X = 0, Y = 0 },
-                        new A.Extents { Cx = ImageWidthEmu, Cy = ImageHeightEmu }),
+                        new A.Extents { Cx = widthEmu, Cy = heightEmu }),
                     new A.PresetGeometry(new A.AdjustValueList()) { Preset = A.ShapeTypeValues.Rectangle })),
             new Xdr.ClientData());
 

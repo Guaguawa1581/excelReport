@@ -66,6 +66,8 @@ public class ReportConfigController : Controller
 
         source.Code = newCode;
         source.Name = $"{source.Name} (複製)";
+        // 複製要產生獨立的一份設定，換一個新的 LogId，否則 Save 會直接覆蓋掉原始設定的檔案。
+        source.LogId = Guid.NewGuid().ToString();
         _configStore.Save(source);
 
         TempData["SuccessMessage"] = $"已複製為：{newCode}";
@@ -85,6 +87,7 @@ public class ReportConfigController : Controller
             vm.IsNew = true;
             vm.Config = new ReportConfig
             {
+                LogId = Guid.NewGuid().ToString(),
                 DataSource = new DataSourceConfig { Method = "GET", TimeoutSec = 30 }
             };
         }
@@ -166,17 +169,15 @@ public class ReportConfigController : Controller
             }
         }
 
-        var isRename = !string.IsNullOrWhiteSpace(originalCode) && originalCode != config.Code;
-        if (isRename && _configStore.Exists(config.Code))
+        // 儲存層以 LogId（不會變動）為準識別同一份設定，這裡只需擋下「Code 被改成別份設定
+        // 正在用的代碼」；LogId 相同代表就是這份設定本身在改名，不算衝突。
+        var duplicate = _configStore.Get(config.Code);
+        if (duplicate != null && duplicate.LogId != config.LogId)
         {
             return EditWithError(configJson, originalCode, $"設定代碼「{config.Code}」已存在，請換一個代碼。");
         }
 
         _configStore.Save(config);
-        if (isRename)
-        {
-            _configStore.Delete(originalCode!);
-        }
 
         TempData["SuccessMessage"] = "設定已儲存。";
         return RedirectToAction(nameof(Edit), new { code = config.Code });

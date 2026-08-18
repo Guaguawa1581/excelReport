@@ -21,6 +21,39 @@ public class ReportConfigStore : IReportConfigStore
         _configsDir = Path.Combine(env.ContentRootPath, "App_Data", "configs");
         _logger = logger;
         Directory.CreateDirectory(_configsDir);
+        MigrateLegacyFiles();
+    }
+
+    /// <summary>舊版設定檔以 {code}.json 命名、沒有 LogId。啟動時掃描一次，補上 LogId 並把檔案
+    /// 搬遷成 {logId}.json，之後 Code 改名就只是改內容、不用搬動實體檔案。</summary>
+    private void MigrateLegacyFiles()
+    {
+        lock (FileLock)
+        {
+            foreach (var file in Directory.EnumerateFiles(_configsDir, "*.json"))
+            {
+                ReportConfig? config;
+                try
+                {
+                    config = ReadFile(file);
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "設定檔 {File} 格式錯誤，略過遷移", file);
+                    continue;
+                }
+                if (config == null || !string.IsNullOrWhiteSpace(config.LogId)) continue;
+
+                config.LogId = Guid.NewGuid().ToString();
+                var newPath = PathFor(config.LogId);
+                File.WriteAllText(newPath, JsonConvert.SerializeObject(config, JsonSettings));
+                if (!string.Equals(newPath, file, StringComparison.OrdinalIgnoreCase))
+                {
+                    File.Delete(file);
+                }
+                _logger.LogInformation("設定檔 {File} 補上 logId 並搬遷為 {NewFile}", file, newPath);
+            }
+        }
     }
 
     public List<ReportConfig> GetAll()
@@ -52,17 +85,7 @@ public class ReportConfigStore : IReportConfigStore
     {
         lock (FileLock)
         {
-            var path = PathFor(code);
-            if (!File.Exists(path)) return null;
-            try
-            {
-                return ReadFile(path);
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogWarning(ex, "設定檔 {File} 格式錯誤", path);
-                return null;
-            }
+            return GetAll().FirstOrDefault(c => c.Code == code);
         }
     }
 
@@ -70,7 +93,11 @@ public class ReportConfigStore : IReportConfigStore
     {
         lock (FileLock)
         {
-            var path = PathFor(config.Code);
+            if (string.IsNullOrWhiteSpace(config.LogId))
+            {
+                config.LogId = Guid.NewGuid().ToString();
+            }
+            var path = PathFor(config.LogId);
             var json = JsonConvert.SerializeObject(config, JsonSettings);
             File.WriteAllText(path, json);
         }
@@ -80,7 +107,9 @@ public class ReportConfigStore : IReportConfigStore
     {
         lock (FileLock)
         {
-            var path = PathFor(code);
+            var config = GetAll().FirstOrDefault(c => c.Code == code);
+            if (config == null) return;
+            var path = PathFor(config.LogId);
             if (File.Exists(path)) File.Delete(path);
         }
     }
@@ -89,11 +118,11 @@ public class ReportConfigStore : IReportConfigStore
     {
         lock (FileLock)
         {
-            return File.Exists(PathFor(code));
+            return GetAll().Any(c => c.Code == code);
         }
     }
 
-    private string PathFor(string code) => Path.Combine(_configsDir, $"{code}.json");
+    private string PathFor(string logId) => Path.Combine(_configsDir, $"{logId}.json");
 
     private static ReportConfig? ReadFile(string path)
     {

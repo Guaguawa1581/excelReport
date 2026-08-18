@@ -39,7 +39,6 @@ D:\Users\Yoruru\Desktop\Coding\excelReport\obj\Debug\net8.0\excelReport.genrunti
 D:\Users\Yoruru\Desktop\Coding\excelReport\obj\Debug\net8.0\ref\excelReport.dll
 C:\working\excelReport\bin\Debug\net8.0\appsettings.Development.json
 C:\working\excelReport\bin\Debug\net8.0\appsettings.json
-C:\working\excelReport\bin\Debug\net8.0\App_Data\configs\IPQC_EXT_INSPECT.json
 C:\working\excelReport\bin\Debug\net8.0\excelReport.staticwebassets.runtime.json
 C:\working\excelReport\bin\Debug\net8.0\excelReport.staticwebassets.endpoints.json
 C:\working\excelReport\bin\Debug\net8.0\excelReport.exe
@@ -79,9 +78,8 @@ C:\working\excelReport\obj\Debug\net8.0\excelReport.pdb
 C:\working\excelReport\obj\Debug\net8.0\excelReport.genruntimeconfig.cache
 C:\working\excelReport\obj\Debug\net8.0\ref\excelReport.dll
 D:\Users\Yoruru\Desktop\Coding\excelReport\obj\Debug\net8.0\excelReport.sourcelink.json
-c:\working\excelReport\bin\Debug\net8.0\App_Data\configs\SupplierIns.json
 D:\Users\Yoruru\Desktop\Coding\excelReport\bin\Debug\net8.0\App_Data\configs\IPQC_EXT_INSPECT.json
 D:\Users\Yoruru\Desktop\Coding\excelReport\bin\Debug\net8.0\App_Data\configs\SupplierIns.json
 D:\Users\Yoruru\Desktop\Coding\excelReport\obj\Debug\net8.0\staticwebassets.upToDateCheck.txt
-C:\working\excelReport\bin\Debug\net8.0\App_Data\configs\SupplierIns_COPY.json
+C:\working\excelReport\bin\Debug\net8.0\App_Data\configs\4f6e6003-08eb-46cd-8ef9-acd88975c048.json
 C:\working\excelReport\obj\Debug\net8.0\staticwebassets.upToDateCheck.txt
