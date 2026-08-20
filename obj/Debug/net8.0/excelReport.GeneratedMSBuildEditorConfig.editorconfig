@@ -9,49 +9,49 @@ build_property.EnforceExtendedAnalyzerRules =
 build_property._SupportedPlatformList = Linux,macOS,Windows
 build_property.RootNamespace = excelReport
 build_property.RootNamespace = excelReport
-build_property.ProjectDir = D:\Users\Yoruru\Desktop\Coding\excelReport\
+build_property.ProjectDir = C:\working\excelReport\
 build_property.EnableComHosting = 
 build_property.EnableGeneratedComInterfaceComImportInterop = 
 build_property.RazorLangVersion = 8.0
 build_property.SupportLocalizedComponentNames = 
 build_property.GenerateRazorMetadataSourceChecksumAttributes = 
-build_property.MSBuildProjectDirectory = D:\Users\Yoruru\Desktop\Coding\excelReport
+build_property.MSBuildProjectDirectory = C:\working\excelReport
 build_property._RazorSourceGeneratorDebug = 
 build_property.EffectiveAnalysisLevelStyle = 8.0
 build_property.EnableCodeStyleSeverity = 
 
-[D:/Users/Yoruru/Desktop/Coding/excelReport/Views/ReportConfig/Edit.cshtml]
+[C:/working/excelReport/Views/ReportConfig/Edit.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUmVwb3J0Q29uZmlnXEVkaXQuY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/Users/Yoruru/Desktop/Coding/excelReport/Views/ReportConfig/Index.cshtml]
+[C:/working/excelReport/Views/ReportConfig/Index.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUmVwb3J0Q29uZmlnXEluZGV4LmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/Users/Yoruru/Desktop/Coding/excelReport/Views/Report/Error.cshtml]
+[C:/working/excelReport/Views/Report/Error.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUmVwb3J0XEVycm9yLmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/Users/Yoruru/Desktop/Coding/excelReport/Views/Report/Index.cshtml]
+[C:/working/excelReport/Views/Report/Index.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUmVwb3J0XEluZGV4LmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/Users/Yoruru/Desktop/Coding/excelReport/Views/Shared/Error.cshtml]
+[C:/working/excelReport/Views/Shared/Error.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXEVycm9yLmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/Users/Yoruru/Desktop/Coding/excelReport/Views/Shared/_ValidationScriptsPartial.cshtml]
+[C:/working/excelReport/Views/Shared/_ValidationScriptsPartial.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXF9WYWxpZGF0aW9uU2NyaXB0c1BhcnRpYWwuY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/Users/Yoruru/Desktop/Coding/excelReport/Views/_ViewImports.cshtml]
+[C:/working/excelReport/Views/_ViewImports.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcX1ZpZXdJbXBvcnRzLmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/Users/Yoruru/Desktop/Coding/excelReport/Views/_ViewStart.cshtml]
+[C:/working/excelReport/Views/_ViewStart.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcX1ZpZXdTdGFydC5jc2h0bWw=
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/Users/Yoruru/Desktop/Coding/excelReport/Views/Shared/_Layout.cshtml]
+[C:/working/excelReport/Views/Shared/_Layout.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXF9MYXlvdXQuY3NodG1s
 build_metadata.AdditionalFiles.CssScope = b-tmvcl2xze6

@@ -83,3 +83,10 @@ D:\Users\Yoruru\Desktop\Coding\excelReport\bin\Debug\net8.0\App_Data\configs\Sup
 D:\Users\Yoruru\Desktop\Coding\excelReport\obj\Debug\net8.0\staticwebassets.upToDateCheck.txt
 C:\working\excelReport\bin\Debug\net8.0\App_Data\configs\4f6e6003-08eb-46cd-8ef9-acd88975c048.json
 C:\working\excelReport\obj\Debug\net8.0\staticwebassets.upToDateCheck.txt
+C:\working\excelReport\bin\Debug\net8.0\binReleasenet8.0publish\web.config
+C:\working\excelReport\bin\Debug\net8.0\binReleasenet8.0publish\appsettings.Development.json
+C:\working\excelReport\bin\Debug\net8.0\binReleasenet8.0publish\appsettings.json
+C:\working\excelReport\bin\Debug\net8.0\binReleasenet8.0publish\App_Data\configs\4f6e6003-08eb-46cd-8ef9-acd88975c048.json
+C:\working\excelReport\bin\Debug\net8.0\binReleasenet8.0publish\excelReport.deps.json
+C:\working\excelReport\bin\Debug\net8.0\binReleasenet8.0publish\excelReport.runtimeconfig.json
+C:\working\excelReport\bin\Debug\net8.0\binReleasenet8.0publish\excelReport.staticwebassets.endpoints.json
